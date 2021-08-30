@@ -99,6 +99,12 @@ public:
   QVariant persistData();
   void setPersistData(const QVariant &persistData);
 
+  void exportVertexData(QString name);
+
+  BufferItemModel *m_ModelVSIn;
+  BufferItemModel *m_ModelVSOut;
+  BufferItemModel *m_ModelGSOut;
+
 private slots:
   // automatic slots
   void on_outputTabs_currentChanged(int index);
@@ -134,7 +140,7 @@ private slots:
 
   void processFormat(const QString &format);
 
-  void exportData(const BufferExport &params);
+  void exportData(const BufferExport &params, bool inputName = true, QString name = QString());
   void debugVertex();
 
 private:
@@ -194,10 +200,6 @@ private:
   FlycamWrapper *m_Flycam = NULL;
 
   bool m_MeshView;
-
-  BufferItemModel *m_ModelVSIn;
-  BufferItemModel *m_ModelVSOut;
-  BufferItemModel *m_ModelGSOut;
 
   PopulateBufferData *m_Scrolls = NULL;
 

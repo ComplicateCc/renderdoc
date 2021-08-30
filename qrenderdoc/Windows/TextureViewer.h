@@ -166,6 +166,8 @@ public:
   QVariant persistData();
   void setPersistData(const QVariant &persistData);
 
+  void SaveRelatedTextures(QString dirPath, QString &debugInfo);
+
 private slots:
   // automatic slots
   void on_renderHScroll_valueChanged(int position);
@@ -192,6 +194,14 @@ private slots:
   void on_resourceDetails_clicked();
   void on_texListShow_clicked();
   void on_saveTex_clicked();
+  void on_saveTexs_clicked();
+  void on_saveAllTex_clicked();
+
+  void SaveStageResourcePreviews(ShaderStage stage, const rdcarray<ShaderResource> &resourceDetails,
+                                 const rdcarray<Bindpoint> &mapping,
+                                 rdcarray<BoundResourceArray> &ResList, int &prevIndex, bool copy,
+                                 bool rw, const QString &savePath, QString &debugInfo);
+
   void on_debugPixelContext_clicked();
   void on_pixelHistory_clicked();
 

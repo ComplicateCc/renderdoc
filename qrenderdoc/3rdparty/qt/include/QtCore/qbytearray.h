@@ -482,7 +482,7 @@ inline char *QByteArray::data()
 { detach(); return d->data(); }
 inline const char *QByteArray::data() const
 { return d->data(); }
-inline const char *QByteArray::constData() const
+const char *QByteArray::constData() const
 { return d->data(); }
 inline void QByteArray::detach()
 { if (d->ref.isShared() || (d->offset != sizeof(QByteArrayData))) reallocData(uint(d->size) + 1u, d->detachFlags()); }
@@ -659,7 +659,7 @@ inline QByteArray &QByteArray::setNum(uint n, int base)
 inline QByteArray &QByteArray::setNum(float n, char f, int prec)
 { return setNum(double(n),f,prec); }
 
-inline std::string QByteArray::toStdString() const
+std::string QByteArray::toStdString() const
 { return std::string(constData(), length()); }
 
 inline QByteArray QByteArray::fromStdString(const std::string &s)

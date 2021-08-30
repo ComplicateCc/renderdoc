@@ -475,7 +475,43 @@
      </widget>
     </item>
     <item>
-     <widget class="QToolButton" name="texListShow">
+      <widget class="QToolButton" name="saveTexs">
+        <property name="toolTip">
+          <string>Batch Save Textures => d:\\capture\\ </string>
+        </property>
+        <property name="text">
+          <string/>
+        </property>
+        <property name="icon">
+          <iconset resource="../Resources/resources.qrc">
+            <normaloff>:/save2.png</normaloff>:/save2.png
+          </iconset>
+        </property>
+        <property name="autoRaise">
+          <bool>true</bool>
+        </property>
+      </widget>
+    </item>
+    <item>
+      <widget class="QToolButton" name="saveAllTex">
+        <property name="toolTip">
+          <string>Save all Textures => d:\\capture\\ </string>
+        </property>
+        <property name="text">
+          <string/>
+        </property>
+        <property name="icon">
+          <iconset resource="../Resources/resources.qrc">
+            <normaloff>:/save3.png</normaloff>:/save3.png
+          </iconset>
+        </property>
+        <property name="autoRaise">
+          <bool>true</bool>
+        </property>
+      </widget>
+    </item>
+    <item>
+      <widget class="QToolButton" name="texListShow">
       <property name="toolTip">
        <string>Open Texture List</string>
       </property>

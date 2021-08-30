@@ -84,6 +84,8 @@
   RESOURCE_DEF(plugin, "plugin.png")                                           \
   RESOURCE_DEF(plugin_add, "plugin_add.png")                                   \
   RESOURCE_DEF(save, "save.png")                                               \
+  RESOURCE_DEF(save2, "save2.png")                                             \
+  RESOURCE_DEF(save3, "save3.png")                                             \
   RESOURCE_DEF(text_add, "text_add.png")                                       \
   RESOURCE_DEF(tick, "tick.png")                                               \
   RESOURCE_DEF(time, "time.png")                                               \

@@ -54,6 +54,14 @@
 #include "Windows/Dialogs/UpdateDialog.h"
 #include "ui_MainWindow.h"
 #include "version.h"
+#include "BufferViewer.h"
+#include "TextureViewer.h"
+
+using namespace std;
+using std::string;
+
+#include <fstream>
+//namespace fs = std::experimental::filesystem;
 
 #define JSON_ID "rdocLayoutData"
 #define JSON_VER 1
@@ -2568,7 +2576,7 @@ void MainWindow::on_action_Recompress_Capture_triggered()
   m_Ctx.RecompressCapture();
 }
 
-void MainWindow::on_action_Start_Replay_Loop_triggered()
+void MainWindow::on_action_Start_Replay_Loop_triggered_old()
 {
   if(!m_Ctx.IsCaptureLoaded())
     return;
@@ -2641,6 +2649,82 @@ void MainWindow::on_action_Start_Replay_Loop_triggered()
 
   m_Ctx.Replay().CancelReplayLoop();
 }
+
+void MainWindow::on_action_Start_Replay_Loop_triggered()
+{
+  qWarning() << "Sai: Exporting Resources...";
+
+  if(!m_Ctx.IsCaptureLoaded())
+    return;
+  QString savePath = tr("D:/Crack/RenderDoc/ExportFiles/");
+  QString resMapInfo = tr("");
+
+  rdcarray<ActionDescription> rootActions = m_Ctx.CurRootActions();
+  //根节点 事件组
+  for(const ActionDescription rootAction : rootActions)
+  {
+    if(!rootAction.children.empty())
+    {
+        //子事件
+      for(const ActionDescription action : rootAction.children)
+      {
+        if(action.eventId >=330 && action.eventId <=342)
+        {
+          uint32_t eventID = action.eventId;
+
+          #pragma region 保存Mesh CSV
+          rdcarray<ICaptureViewer *> capviewers;
+          m_Ctx.SetEventID(capviewers, eventID, eventID, true);
+
+          const PipeState &pipe = m_Ctx.CurPipelineState();
+
+          BufferViewer *viewer = new BufferViewer(m_Ctx, true, m_Ctx.GetMainWindow()->Widget());
+          viewer->exportVertexData(
+              QFormatStr("%1Mesh_%2.csv").arg(savePath).arg(eventID));
+
+          resMapInfo.append(QFormatStr("Mesh_%1:").arg(eventID));
+          #pragma endregion //保存Mesh CSV
+
+          #pragma region 保存相关贴图
+          TextureViewer *textureViewer = new TextureViewer(m_Ctx,m_Ctx.GetMainWindow()->Widget());
+          textureViewer->SaveRelatedTextures(savePath, resMapInfo);
+          //textureViewer->saveGeometry()
+          //const ShaderReflection *details = Following::GetReflection(m_Ctx, pipe);
+          //const ShaderBindpointMapping &mapping = Following::GetMapping(m_Ctx, pipe);
+          resMapInfo.append(tr("\n"));
+          #pragma endregion //保存相关贴图
+        }
+      }
+    }
+  }
+
+  qWarning() << "=============Sai: ResMapInfo Start=============";
+  qWarning() << resMapInfo;
+  qWarning() << "=============Sai: ResMapInfo End=============";
+
+  string outFileName = savePath.toStdString() + "ResMapInfo.txt";
+
+  ofstream file_writer(outFileName);
+  if(file_writer.is_open())
+  {
+    file_writer << resMapInfo.toStdString();
+    file_writer.close();
+  }
+  //TestCode
+  //uint32_t eventID = 342;
+
+  //rdcarray<ICaptureViewer *> capviewers;
+  //m_Ctx.SetEventID(capviewers, eventID, eventID, true);
+
+  //const PipeState &pipe = m_Ctx.CurPipelineState();
+
+  ////rdcarray<BoundVBuffer> vbs = pipe.GetVBuffers();
+  ////const ActionDescription *action = m_Ctx.CurAction();
+
+  //BufferViewer *viewer = new BufferViewer(m_Ctx, true, m_Ctx.GetMainWindow()->Widget());
+  //viewer->exportVertexData(QFormatStr("D:/Crack/RenderDoc/ExportFiles/Mesh_%1.csv").arg(eventID));
+}
+
 
 void MainWindow::on_action_Open_RGP_Profile_triggered()
 {

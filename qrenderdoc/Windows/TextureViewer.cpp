@@ -2397,6 +2397,10 @@ void TextureViewer::InitResourcePreview(ResourcePreview *prev, BoundResource res
 
     prev->setResourceName(fullname);
 
+    //Test
+    std::string stdBindName = bindName.toStdString();
+    std::string stdFullname = fullname.toStdString();
+
     WindowingData winData = prev->GetWidgetWindowingData();
 
     prev->setProperty("f", QVariant::fromValue(follow));
@@ -3186,6 +3190,9 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
     QString slotName = (copy || clear)
                            ? tr("DST")
                            : QString(m_Ctx.CurPipelineState().OutputAbbrev() + QString::number(rt));
+    
+    //Test
+    std::string name = bindName.toStdString() + slotName.toStdString();
 
     InitResourcePreview(prev, RTs[rt], false, follow, bindName, slotName);
   }
@@ -3976,6 +3983,250 @@ void TextureViewer::on_saveTex_clicked()
   }
 }
 
+//================扩展方法 Start===================
+static TextureSave tmpSaveCfg;
+
+void TextureViewer::SaveStageResourcePreviews(ShaderStage stage,
+                                              const rdcarray<ShaderResource> &resourceDetails,
+                                              const rdcarray<Bindpoint> &mapping,
+                                              rdcarray<BoundResourceArray> &ResList, int &prevIndex,
+                                              bool copy, bool rw, const QString &savePath,
+                                              QString &debugInfo)
+{
+  for(int idx = 0; idx < mapping.count(); idx++)
+  {
+    const Bindpoint &key = mapping[idx];
+
+    const rdcarray<BoundResource> *resArray = NULL;
+    uint32_t dynamicallyUsedResCount = 1;
+    int32_t firstIndex = 0;
+
+    int residx = ResList.indexOf(key);
+    if(residx >= 0)
+    {
+      resArray = &ResList[residx].resources;
+      dynamicallyUsedResCount = ResList[residx].dynamicallyUsedCount;
+      firstIndex = ResList[residx].firstIndex;
+    }
+
+    int arrayLen = resArray != NULL ? resArray->count() : 1;
+
+    const bool collapseArray = arrayLen > 8 && (dynamicallyUsedResCount > 20 || m_ShowUnused);
+
+    for(int i = 0; i < arrayLen; i++)
+    {
+      int arrayIdx = firstIndex + i;
+
+      if(resArray && i >= resArray->count())
+        break;
+
+      if(resArray && !resArray->at(i).dynamicallyUsed)
+        continue;
+
+      BoundResource res = {};
+
+      if(resArray)
+        res = resArray->at(i);
+
+      Following follow(*this, rw ? FollowType::ReadWrite : FollowType::ReadOnly, stage, idx,
+                       arrayIdx);
+
+      // show if it's referenced by the shader - regardless of empty or not
+      bool show = key.used || copy;
+
+      // it's bound, but not referenced, and we have "show disabled"
+      show = show || (m_ShowUnused && res.resourceId != ResourceId());
+
+      // it's empty, and we have "show empty"
+      show = show || (m_ShowEmpty && res.resourceId == ResourceId());
+
+      // it's the one we're following
+      show = show || (follow == m_Following);
+
+      if(!show)
+      {
+        continue;
+      }
+
+      QString bindName;
+
+      for(const ShaderResource &bind : resourceDetails)
+      {
+        if(bind.bindPoint == idx)
+        {
+          bindName = bind.name;
+          break;
+        }
+      }
+      if(bindName.isEmpty())
+      {
+        bindName = m_Ctx.GetResourceName(res.resourceId);
+      }
+
+      tmpSaveCfg.resourceId = res.resourceId;
+      tmpSaveCfg.destType = FileType::PNG;
+      tmpSaveCfg.channelExtract = -1;
+      tmpSaveCfg.alphaCol = FloatVector(0, 0, 0, 0);
+      tmpSaveCfg.mip = 0;
+
+      uint64_t currId = *((uint64_t *)&res.resourceId);
+      QString fn = QString(tr("%1\\%2_%3.png")).arg(savePath).arg(bindName).arg(currId);
+
+      //日志输出
+      debugInfo += QString(tr("%1_%2;")).arg(bindName).arg(currId);
+      //std::string info = debugInfo.toStdString();
+
+      bool ret = false;
+      m_Ctx.Replay().BlockInvoke([this, &ret, fn](IReplayController *r) {
+        ret = r->SaveTexture(tmpSaveCfg, fn.toUtf8().data());
+      });
+    }
+  }
+}
+
+void TextureViewer::SaveRelatedTextures(QString dirPath, QString &debugInfo)
+{
+  int outIndex = 0;
+  int inIndex = 0;
+
+  bool copy = false, clear = false, compute = false;
+  Following::GetActionContext(m_Ctx, copy, clear, compute);
+
+  ShaderStage stages[] = {ShaderStage::Vertex, ShaderStage::Hull, ShaderStage::Domain,
+                          ShaderStage::Geometry, ShaderStage::Pixel};
+
+  int count = 5;
+
+  if(compute)
+  {
+    stages[0] = ShaderStage::Compute;
+    count = 1;
+  }
+
+  const rdcarray<ShaderResource> empty;
+
+  QString currDir;
+  //for(int i = 0; i < 2048; ++i)
+  //{
+  //  //++captureBatch;
+  //  currDir = QString(tr("d:\\capture\\cap_%1")).arg(m_Ctx.CurEvent());
+  //  QDir dir(currDir);
+  //  if(dir.exists())
+  //  {
+  //    continue;
+  //  }
+
+  //  dir.mkpath(currDir);
+  //  break;
+  //}
+  currDir = dirPath;
+
+  // display resources used for all stages
+  for(int i = 0; i < count; i++)
+  {
+    ShaderStage stage = stages[i];
+
+    m_ReadWriteResources[(uint32_t)stage] =
+        Following::GetReadWriteResources(m_Ctx, stage, !m_ShowUnused);
+    m_ReadOnlyResources[(uint32_t)stage] =
+        Following::GetReadOnlyResources(m_Ctx, stage, !m_ShowUnused);
+
+    const ShaderReflection *details = Following::GetReflection(m_Ctx, stage);
+    const ShaderBindpointMapping &mapping = Following::GetMapping(m_Ctx, stage);
+
+    SaveStageResourcePreviews(stage, details != NULL ? details->readOnlyResources : empty,
+                              mapping.readOnlyResources, m_ReadOnlyResources[(uint32_t)stage],
+                              inIndex, copy, false, currDir, debugInfo);
+  }
+}
+
+
+static uint captureBatch = 0;
+
+void TextureViewer::on_saveTexs_clicked()
+{
+  int outIndex = 0;
+  int inIndex = 0;
+
+  bool copy = false, clear = false, compute = false;
+  Following::GetActionContext(m_Ctx, copy, clear, compute);
+
+  ShaderStage stages[] = {ShaderStage::Vertex, ShaderStage::Hull, ShaderStage::Domain,
+                          ShaderStage::Geometry, ShaderStage::Pixel};
+
+  int count = 5;
+
+  if(compute)
+  {
+    stages[0] = ShaderStage::Compute;
+    count = 1;
+  }
+
+  const rdcarray<ShaderResource> empty;
+
+  QString currDir;
+  for(int i = 0; i < 2048; ++i)
+  {
+    ++captureBatch;
+    currDir = QString(tr("d:\\capture\\cap_%1")).arg(m_Ctx.CurEvent());
+    QDir dir(currDir);
+    if(dir.exists())
+    {
+      continue;
+    }
+
+    dir.mkpath(currDir);
+    break;
+  }
+
+  QString debugInfo = tr("");
+  // display resources used for all stages
+  for(int i = 0; i < count; i++)
+  {
+    ShaderStage stage = stages[i];
+
+    m_ReadWriteResources[(uint32_t)stage] =
+        Following::GetReadWriteResources(m_Ctx, stage, !m_ShowUnused);
+    m_ReadOnlyResources[(uint32_t)stage] =
+        Following::GetReadOnlyResources(m_Ctx, stage, !m_ShowUnused);
+
+    const ShaderReflection *details = Following::GetReflection(m_Ctx, stage);
+    const ShaderBindpointMapping &mapping = Following::GetMapping(m_Ctx, stage);
+
+    SaveStageResourcePreviews(stage, details != NULL ? details->readOnlyResources : empty,
+                              mapping.readOnlyResources, m_ReadOnlyResources[(uint32_t)stage],
+                              inIndex, copy, false, currDir, debugInfo);
+  }
+}
+
+void TextureViewer::on_saveAllTex_clicked()
+{
+  //int count = m_Ctx.GetTextures().count();
+  for(const TextureDescription &tex : m_Ctx.GetTextures())
+  {
+    tmpSaveCfg.resourceId = tex.resourceId;
+    tmpSaveCfg.destType = FileType::PNG;
+    tmpSaveCfg.channelExtract = -1;
+    tmpSaveCfg.alphaCol = FloatVector(0, 0, 0, 0);
+
+    QString fn;
+    fn.sprintf("d:\\capture\\%d.png", tex.resourceId);
+
+    QFileInfo qi(fn);
+    QDir dir(qi.absoluteDir());
+    if(!dir.exists())
+    {
+      dir.makeAbsolute();
+    }
+
+    bool ret = false;
+    m_Ctx.Replay().BlockInvoke([this, &ret, fn](IReplayController *r) {
+      ret = r->SaveTexture(tmpSaveCfg, fn.toUtf8().data());
+    });
+  }
+  //m_Ctx.CurAction()->outputs;
+}
+//================扩展方法 End=====================
 void TextureViewer::on_debugPixelContext_clicked()
 {
   if(m_PickedPoint.x() < 0 || m_PickedPoint.y() < 0)
