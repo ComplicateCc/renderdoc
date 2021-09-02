@@ -4197,7 +4197,8 @@ void BufferViewer::exportData(const BufferExport &params, bool inputName, QStrin
     }
     else if(params.format == BufferExport::CSV)
     {
-      QThread::msleep(500);
+      //不知道怎么写线程回调 先等待2s吧
+      QThread::msleep(2000);
       // otherwise we need to iterate over all the data ourselves
       //const BufferConfiguration &config = model->getConfig();
       const BufferConfiguration &config = m_ModelVSIn->getCachedConfig();

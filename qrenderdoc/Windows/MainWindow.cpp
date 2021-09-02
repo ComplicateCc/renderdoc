@@ -56,6 +56,7 @@
 #include "version.h"
 #include "BufferViewer.h"
 #include "TextureViewer.h"
+#include "ConstantBufferPreviewer.h"
 
 using namespace std;
 using std::string;
@@ -2656,7 +2657,7 @@ void MainWindow::on_action_Start_Replay_Loop_triggered()
 
   if(!m_Ctx.IsCaptureLoaded())
     return;
-  QString savePath = tr("D:/Crack/RenderDoc/ExportFiles/");
+  QString savePath = tr("D:/Project/Unity/2020/LaiShaProject/Assets/SaiTest/ExportFiles/");
   QString resMapInfo = tr("");
 
   rdcarray<ActionDescription> rootActions = m_Ctx.CurRootActions();
@@ -2665,10 +2666,13 @@ void MainWindow::on_action_Start_Replay_Loop_triggered()
   {
     if(!rootAction.children.empty())
     {
+      BufferViewer *viewer;
+      TextureViewer *textureViewer;
+      ConstantBufferPreviewer *bufferViewer;
         //子事件
       for(const ActionDescription action : rootAction.children)
       {
-        if(action.eventId >=330 && action.eventId <=342)
+        if(action.eventId >=173 && action.eventId <=700)
         {
           uint32_t eventID = action.eventId;
 
@@ -2678,26 +2682,41 @@ void MainWindow::on_action_Start_Replay_Loop_triggered()
 
           const PipeState &pipe = m_Ctx.CurPipelineState();
 
-          BufferViewer *viewer = new BufferViewer(m_Ctx, true, m_Ctx.GetMainWindow()->Widget());
+          viewer = new BufferViewer(m_Ctx, true, m_Ctx.GetMainWindow()->Widget());
           viewer->exportVertexData(
               QFormatStr("%1Mesh_%2.csv").arg(savePath).arg(eventID));
 
           resMapInfo.append(QFormatStr("Mesh_%1:").arg(eventID));
           #pragma endregion //保存Mesh CSV
 
+
           #pragma region 保存相关贴图
-          TextureViewer *textureViewer = new TextureViewer(m_Ctx,m_Ctx.GetMainWindow()->Widget());
+          textureViewer = new TextureViewer(m_Ctx,m_Ctx.GetMainWindow()->Widget());
           textureViewer->SaveRelatedTextures(savePath, resMapInfo);
           //textureViewer->saveGeometry()
           //const ShaderReflection *details = Following::GetReflection(m_Ctx, pipe);
           //const ShaderBindpointMapping &mapping = Following::GetMapping(m_Ctx, pipe);
+#pragma endregion    //保存相关贴图
           resMapInfo.append(tr("\n"));
-          #pragma endregion //保存相关贴图
+
+          bufferViewer = new ConstantBufferPreviewer(
+              m_Ctx, ShaderStage::Vertex, 0, 0, m_Ctx.GetMainWindow()->Widget());
+          bufferViewer->GetMatrixValue(resMapInfo);
+
+          resMapInfo.append(tr("\n"));
+
+          //delete viewer;
+          //delete textureViewer;
+          //delete bufferViewer;
         }
       }
     }
   }
 
+
+  
+  //qWarning() << prev->GetMatrixValue();
+  
   qWarning() << "=============Sai: ResMapInfo Start=============";
   qWarning() << resMapInfo;
   qWarning() << "=============Sai: ResMapInfo End=============";

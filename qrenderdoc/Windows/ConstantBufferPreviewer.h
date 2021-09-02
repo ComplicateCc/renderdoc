@@ -56,6 +56,8 @@ public:
   void OnSelectedEventChanged(uint32_t eventId) override {}
   void OnEventChanged(uint32_t eventId) override;
 
+  void GetMatrixValue(QString &debugInfo);
+
 private slots:
   // automatic slots
   void on_setFormat_toggled(bool checked);

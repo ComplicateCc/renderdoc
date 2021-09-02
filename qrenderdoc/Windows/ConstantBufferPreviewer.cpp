@@ -194,6 +194,48 @@ void ConstantBufferPreviewer::OnEventChanged(uint32_t eventId)
   }
 }
 
+void ConstantBufferPreviewer::GetMatrixValue(QString &debugInfo)
+{
+  BoundCBuffer cb = m_Ctx.CurPipelineState().GetConstantBuffer(m_stage, m_slot, m_arrayIdx);
+  m_cbuffer = cb.resourceId;
+  uint64_t offset = cb.byteOffset;
+  uint64_t size = cb.byteSize;
+  bytebuf inlineData = cb.inlineData;
+
+  m_pipe = m_stage == ShaderStage::Compute ? m_Ctx.CurPipelineState().GetComputePipelineObject()
+                                           : m_Ctx.CurPipelineState().GetGraphicsPipelineObject();
+  m_shader = m_Ctx.CurPipelineState().GetShader(m_stage);
+  rdcstr entryPoint = m_Ctx.CurPipelineState().GetShaderEntryPoint(m_stage);
+  const ShaderReflection *reflection = m_Ctx.CurPipelineState().GetShaderReflection(m_stage);
+
+  bool wasEmpty = ui->variables->topLevelItemCount() == 0;
+
+  m_Ctx.Replay().BlockInvoke([this, entryPoint, offset, size, &debugInfo](IReplayController *r) {
+    rdcarray<ShaderVariable> vars =
+        r->GetCBufferVariableContents(m_pipe, m_shader, entryPoint, m_slot, m_cbuffer, offset, size);
+#pragma region 采集数据
+    std::string content = "";
+
+    for(const ShaderVariable &v : vars)
+    {
+      if(v.name.contains("ObjectToWorld"))
+      {
+        // Temp HardCode  TODO:if valueType
+        for(const ShaderVariable &child : v.members)
+        {
+          content +=
+              std::to_string(child.value.f32v[0]) + ',' + std::to_string(child.value.f32v[1]) + ',' +
+              std::to_string(child.value.f32v[2]) + ',' + std::to_string(child.value.f32v[3]) + ',';
+        }
+      }
+    }
+    //std::string oldDebugInfo = debugInfo.toStdString();
+    debugInfo += tr(content.c_str());
+    //std::string newDebugInfo = debugInfo.toStdString();
+#pragma endregion
+    });
+}
+
 void ConstantBufferPreviewer::on_setFormat_toggled(bool checked)
 {
   if(!checked)
