@@ -218,7 +218,8 @@ void ConstantBufferPreviewer::GetMatrixValue(QString &debugInfo)
 
     for(const ShaderVariable &v : vars)
     {
-      if(v.name.contains("ObjectToWorld"))
+      //if(v.name.contains("ObjectToWorld") || v.name.contains("L2W") || v.name.contains("vc2_h"))
+      if(v.name.contains("vc2_h"))
       {
         // Temp HardCode  TODO:if valueType
         for(const ShaderVariable &child : v.members)

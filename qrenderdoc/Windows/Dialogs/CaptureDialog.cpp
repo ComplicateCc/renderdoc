@@ -893,6 +893,9 @@ void CaptureDialog::on_toggleGlobal_clicked()
 
     QString capturefile = m_Ctx.TempCaptureFilename(QFileInfo(exe).baseName());
 
+    std::string exeStr = exe.toStdString();
+    std::string capturefileStr = capturefile.toStdString();
+
     bool success = RENDERDOC_StartGlobalHook(exe, capturefile, Settings().options);
 
     if(!success)

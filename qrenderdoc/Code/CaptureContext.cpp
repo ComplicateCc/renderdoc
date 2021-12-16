@@ -2693,7 +2693,8 @@ void CaptureContext::BuiltinWindowClosed(QWidget *window)
   else if(m_PerformanceCounterViewer && m_PerformanceCounterViewer->Widget() == window)
     m_PerformanceCounterViewer = NULL;
   else
-    qCritical() << "Unrecognised window being closed: " << window;
+    return;
+    //qCritical() << "Unrecognised window being closed: " << window;
 }
 
 void CaptureContext::setupDockWindow(QWidget *shad)

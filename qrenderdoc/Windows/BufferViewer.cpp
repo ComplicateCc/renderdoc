@@ -4084,7 +4084,7 @@ void BufferViewer::exportData(const BufferExport &params, bool inputName, QStrin
   }
   else
   {
-    UI_CalculateMeshFormats();
+    //UI_CalculateMeshFormats();
     filename = name;
   }
 
@@ -4312,11 +4312,13 @@ void BufferViewer::exportData(const BufferExport &params, bool inputName, QStrin
     delete f;
   });
   exportThread->start();
-  //exportThread->wait(500);
+  exportThread->wait(100);
 
-  ShowProgressDialog(this, tr("Exporting data"),
-                     [exportThread]() { return !exportThread->isRunning(); });
-
+  if(exportThread->isRunning())
+  {
+    ShowProgressDialog(this, tr("Exporting data"),
+                       [exportThread]() { return !exportThread->isRunning(); });
+  }
   exportThread->deleteLater();
 }
 
