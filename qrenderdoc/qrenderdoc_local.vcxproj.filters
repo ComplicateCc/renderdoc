@@ -156,6 +156,9 @@
     <ClCompile Include="Windows\Dialogs\CaptureDialog.cpp">
       <Filter>Windows\Dialogs</Filter>
     </ClCompile>
+    <ClCompile Include="Code\TextureReplacer.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
     <ClCompile Include="Code\QRDUtils.cpp">
       <Filter>Code</Filter>
     </ClCompile>

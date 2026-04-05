@@ -603,6 +603,7 @@
     </ClCompile>
     <ClCompile Include="Code\qprocessinfo.cpp" />
     <ClCompile Include="Code\pyrenderdoc\PythonContext.cpp" />
+    <ClCompile Include="Code\TextureReplacer.cpp" />
     <ClCompile Include="Code\QRDUtils.cpp" />
     <ClCompile Include="Code\MiniQtHelper.cpp" />
     <ClCompile Include="Code\Resources.cpp" />
