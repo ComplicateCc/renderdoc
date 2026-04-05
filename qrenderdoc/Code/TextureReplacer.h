@@ -27,6 +27,7 @@
 
 #include <QMap>
 #include <QString>
+#include <QStringList>
 #include "Code/Interface/QRDInterface.h"
 
 // Built-in test texture types
@@ -105,7 +106,14 @@ public:
   // Called when capture is closed to clean up
   void OnCaptureClosed();
 
+  // Status log for debugging - viewable via Diagnostic Log or QMessageBox
+  QString GetStatusLog() const;
+  void ClearLog();
+
 private:
+  void appendLog(const QString &msg);
+
   ICaptureContext &m_Ctx;
   QMap<ResourceId, TextureReplacement> m_Replacements;
+  QStringList m_StatusLog;
 };
