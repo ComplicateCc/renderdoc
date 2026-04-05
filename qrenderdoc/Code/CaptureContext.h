@@ -50,6 +50,8 @@ class LogView;
 class CommentView;
 class PerformanceCounterViewer;
 class StatisticsViewer;
+class TAStatsPanel;
+class CBufferEditor;
 class TimelineBar;
 class PythonShell;
 class ResourceInspector;
@@ -223,6 +225,8 @@ public:
   ICommentView *GetCommentView() override;
   IPerformanceCounterViewer *GetPerformanceCounterViewer() override;
   IStatisticsViewer *GetStatisticsViewer() override;
+  ITAStatsPanel *GetTAStatsPanel() override;
+  ICBufferEditor *GetCBufferEditor() override;
   ITimelineBar *GetTimelineBar() override;
   IPythonShell *GetPythonShell() override;
   IResourceInspector *GetResourceInspector() override;
@@ -239,6 +243,8 @@ public:
   bool HasCommentView() override { return m_CommentView != NULL; }
   bool HasPerformanceCounterViewer() override { return m_PerformanceCounterViewer != NULL; }
   bool HasStatisticsViewer() override { return m_StatisticsViewer != NULL; }
+  bool HasTAStatsPanel() override { return m_TAStatsPanel != NULL; }
+  bool HasCBufferEditor() override { return m_CBufferEditor != NULL; }
   bool HasTimelineBar() override { return m_TimelineBar != NULL; }
   bool HasPythonShell() override { return m_PythonShell != NULL; }
   bool HasResourceInspector() override { return m_ResourceInspector != NULL; }
@@ -254,6 +260,8 @@ public:
   void ShowCommentView() override;
   void ShowPerformanceCounterViewer() override;
   void ShowStatisticsViewer() override;
+  void ShowTAStatsPanel() override;
+  void ShowCBufferEditor() override;
   void ShowTimelineBar() override;
   void ShowPythonShell() override;
   void ShowResourceInspector() override;
@@ -449,6 +457,8 @@ private:
   CommentView *m_CommentView = NULL;
   PerformanceCounterViewer *m_PerformanceCounterViewer = NULL;
   StatisticsViewer *m_StatisticsViewer = NULL;
+  TAStatsPanel *m_TAStatsPanel = NULL;
+  CBufferEditor *m_CBufferEditor = NULL;
   TimelineBar *m_TimelineBar = NULL;
   PythonShell *m_PythonShell = NULL;
   ResourceInspector *m_ResourceInspector = NULL;

@@ -747,6 +747,26 @@ See :meth:`BuildTargetShader`.
 )");
   virtual void FreeTargetResource(ResourceId id) = 0;
 
+  DOCUMENT(R"(Create a proxy texture resource matching the description of an existing texture.
+
+This can be used to create replacement textures for live editing. The returned resource id can be
+filled with data using :meth:`SetProxyTextureData` and then substituted using :meth:`ReplaceResource`.
+
+:param TextureDescription templateTex: The texture description to use as a template.
+:return: The id of the new proxy texture.
+:rtype: ResourceId
+)");
+  virtual ResourceId CreateProxyTexture(const TextureDescription &templateTex) = 0;
+
+  DOCUMENT(R"(Set the data for a proxy texture previously created with :meth:`CreateProxyTexture`.
+
+:param ResourceId proxyid: The id of the proxy texture.
+:param Subresource sub: The subresource to set data for (mip, array slice, sample).
+:param bytebuf data: The raw texture data to upload.
+)");
+  virtual void SetProxyTextureData(ResourceId proxyid, const Subresource &sub, byte *data,
+                                   size_t dataSize) = 0;
+
   DOCUMENT(R"(Retrieve the information about the frame contained in the capture.
 
 :return: The frame information.

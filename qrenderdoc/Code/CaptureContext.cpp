@@ -59,6 +59,8 @@
 #include "Windows/ShaderMessageViewer.h"
 #include "Windows/ShaderViewer.h"
 #include "Windows/StatisticsViewer.h"
+#include "Windows/TAStatsPanel.h"
+#include "Windows/CBufferEditor.h"
 #include "Windows/TextureViewer.h"
 #include "Windows/TimelineBar.h"
 #include "MiniQtHelper.h"
@@ -2396,6 +2398,30 @@ IStatisticsViewer *CaptureContext::GetStatisticsViewer()
   return m_StatisticsViewer;
 }
 
+ITAStatsPanel *CaptureContext::GetTAStatsPanel()
+{
+  if(m_TAStatsPanel)
+    return m_TAStatsPanel;
+
+  m_TAStatsPanel = new TAStatsPanel(*this, m_MainWindow);
+  m_TAStatsPanel->setObjectName(lit("taStatsPanel"));
+  setupDockWindow(m_TAStatsPanel, true);
+
+  return m_TAStatsPanel;
+}
+
+ICBufferEditor *CaptureContext::GetCBufferEditor()
+{
+  if(m_CBufferEditor)
+    return m_CBufferEditor;
+
+  m_CBufferEditor = new CBufferEditor(*this, m_MainWindow);
+  m_CBufferEditor->setObjectName(lit("cbufferEditor"));
+  setupDockWindow(m_CBufferEditor, true);
+
+  return m_CBufferEditor;
+}
+
 ITimelineBar *CaptureContext::GetTimelineBar()
 {
   if(m_TimelineBar)
@@ -2490,6 +2516,16 @@ void CaptureContext::ShowPerformanceCounterViewer()
 void CaptureContext::ShowStatisticsViewer()
 {
   m_MainWindow->showStatisticsViewer();
+}
+
+void CaptureContext::ShowTAStatsPanel()
+{
+  m_MainWindow->showTAStatsPanel();
+}
+
+void CaptureContext::ShowCBufferEditor()
+{
+  m_MainWindow->showCBufferEditor();
 }
 
 void CaptureContext::ShowTimelineBar()

@@ -2633,6 +2633,26 @@ void MainWindow::on_action_Statistics_Viewer_triggered()
     ui->toolWindowManager->addToolWindow(stats, mainToolArea());
 }
 
+void MainWindow::on_action_TA_Stats_Panel_triggered()
+{
+  QWidget *panel = m_Ctx.GetTAStatsPanel()->Widget();
+
+  if(ui->toolWindowManager->toolWindows().contains(panel))
+    ToolWindowManager::raiseToolWindow(panel);
+  else
+    ui->toolWindowManager->addToolWindow(panel, mainToolArea());
+}
+
+void MainWindow::on_action_CBuffer_Editor_triggered()
+{
+  QWidget *editor = m_Ctx.GetCBufferEditor()->Widget();
+
+  if(ui->toolWindowManager->toolWindows().contains(editor))
+    ToolWindowManager::raiseToolWindow(editor);
+  else
+    ui->toolWindowManager->addToolWindow(editor, mainToolArea());
+}
+
 void MainWindow::on_action_Timeline_triggered()
 {
   QWidget *stats = m_Ctx.GetTimelineBar()->Widget();

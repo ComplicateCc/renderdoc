@@ -351,6 +351,10 @@ private:
 
   TextureSave m_SaveConfig;
 
+  class TextureReplacer *m_TextureReplacer = nullptr;
+  QToolButton *m_ReplaceButton = nullptr;
+  QLabel *m_ReplacedLabel = nullptr;
+
   bool m_NeedCustomReload = false;
 
   TextureDescription *m_CachedTexture;

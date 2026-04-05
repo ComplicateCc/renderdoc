@@ -2121,6 +2121,21 @@ void ReplayController::FreeTargetResource(ResourceId id)
   m_pDevice->FreeTargetResource(id);
 }
 
+ResourceId ReplayController::CreateProxyTexture(const TextureDescription &templateTex)
+{
+  CHECK_REPLAY_THREAD();
+
+  return m_pDevice->CreateProxyTexture(templateTex);
+}
+
+void ReplayController::SetProxyTextureData(ResourceId proxyid, const Subresource &sub, byte *data,
+                                           size_t dataSize)
+{
+  CHECK_REPLAY_THREAD();
+
+  m_pDevice->SetProxyTextureData(proxyid, sub, data, dataSize);
+}
+
 void ReplayController::FreeCustomShader(ResourceId id)
 {
   CHECK_REPLAY_THREAD();
