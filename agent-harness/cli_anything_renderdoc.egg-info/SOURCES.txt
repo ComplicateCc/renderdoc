@@ -1,0 +1,15 @@
+setup.py
+cli_anything/renderdoc/__init__.py
+cli_anything/renderdoc/__main__.py
+cli_anything/renderdoc/renderdoc_cli.py
+cli_anything/renderdoc/core/__init__.py
+cli_anything/renderdoc/tests/test_core.py
+cli_anything/renderdoc/tests/test_full_e2e.py
+cli_anything/renderdoc/utils/__init__.py
+cli_anything/renderdoc/utils/renderdoc_backend.py
+cli_anything_renderdoc.egg-info/PKG-INFO
+cli_anything_renderdoc.egg-info/SOURCES.txt
+cli_anything_renderdoc.egg-info/dependency_links.txt
+cli_anything_renderdoc.egg-info/entry_points.txt
+cli_anything_renderdoc.egg-info/requires.txt
+cli_anything_renderdoc.egg-info/top_level.txt

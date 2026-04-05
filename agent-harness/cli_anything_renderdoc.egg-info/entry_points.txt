@@ -1,0 +1,2 @@
+[console_scripts]
+cli-anything-renderdoc = cli_anything.renderdoc.renderdoc_cli:cli
