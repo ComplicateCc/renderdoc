@@ -256,11 +256,31 @@ void TextureReplacer::ReplaceTexture(ResourceId originalTexId, const LoadedImage
       return;
     }
 
-    TEX_LOG(QStringLiteral("Step 1 OK: Found texture - format=%1, dim=%2x%3, mips=%4")
+    // Only allow replacing textures that are shader-readable resources.
+    // Render Targets (ColorTarget / DepthTarget only) are generated at runtime
+    // and cannot be meaningfully replaced.
+    if(!(origTex->creationFlags & TextureCategory::ShaderRead))
+    {
+      TEX_ERR(QStringLiteral("Texture is not a shader resource (flags=0x%1). "
+                              "Only shader-readable textures can be replaced. "
+                              "Render targets and depth buffers are generated at runtime.")
+                  .arg(QString::number((uint32_t)origTex->creationFlags, 16)));
+      GUIInvoke::call(m_Ctx.GetMainWindow()->Widget(), [this]() {
+        QMessageBox::warning(
+            m_Ctx.GetMainWindow()->Widget(), QStringLiteral("Texture Replace Failed"),
+            QStringLiteral("This texture is a Render Target or Depth Buffer, not a shader resource.\n"
+                           "Only textures used as shader inputs can be replaced.\n\n%1")
+                .arg(GetStatusLog()));
+      });
+      return;
+    }
+
+    TEX_LOG(QStringLiteral("Step 1 OK: Found texture - format=%1, dim=%2x%3, mips=%4, flags=0x%5")
                 .arg(QString(origTex->format.Name()))
                 .arg(origTex->width)
                 .arg(origTex->height)
-                .arg(origTex->mips));
+                .arg(origTex->mips)
+                .arg(QString::number((uint32_t)origTex->creationFlags, 16)));
 
     // Step 2: First replay to current event so initial states are applied
     TEX_LOG(QStringLiteral("Step 2: Replaying to current event to restore initial states..."));

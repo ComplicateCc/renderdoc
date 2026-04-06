@@ -566,8 +566,24 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
       bool hasCur = (curId != ResourceId());
       bool isReplaced = hasCur && m_TextureReplacer->IsReplaced(curId);
 
+      // Check if the current texture is a shader-readable resource (not just an RT)
+      bool isReplaceable = false;
+      if(hasCur)
+      {
+        for(const TextureDescription &t : m_Ctx.GetTextures())
+        {
+          if(t.resourceId == curId)
+          {
+            isReplaceable = bool(t.creationFlags & TextureCategory::ShaderRead);
+            break;
+          }
+        }
+      }
+
       QAction *fromFile = replaceMenu->addAction(tr("From File..."));
-      fromFile->setEnabled(hasCur);
+      fromFile->setEnabled(hasCur && isReplaceable);
+      if(hasCur && !isReplaceable)
+        fromFile->setToolTip(tr("Only shader-readable textures can be replaced (not RT/DS)"));
       QObject::connect(fromFile, &QAction::triggered, [this, curId]() {
         QString path = RDDialog::getOpenFileName(
             this, tr("Select Replacement Texture"), QString(),
@@ -579,7 +595,7 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
       replaceMenu->addSeparator();
 
       QMenu *builtinMenu = replaceMenu->addMenu(tr("Built-in Textures"));
-      builtinMenu->setEnabled(hasCur);
+      builtinMenu->setEnabled(hasCur && isReplaceable);
 
       auto addBuiltin = [this, builtinMenu, curId](const QString &name, BuiltinTexture type) {
         QAction *act = builtinMenu->addAction(name);
