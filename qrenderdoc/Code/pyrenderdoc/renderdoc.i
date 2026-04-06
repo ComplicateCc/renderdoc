@@ -107,6 +107,23 @@ VA_IGNORE_REST_OF_FILE
 %ignore rdhalf;
 %ignore bytebuf;
 
+// Typemap to handle (byte *data, size_t dataSize) pairs from Python bytes/bytearray
+%typemap(in) (byte *data, size_t dataSize) {
+  if(PyBytes_Check($input)) {
+    $1 = (byte *)PyBytes_AsString($input);
+    $2 = (size_t)PyBytes_Size($input);
+  } else if(PyByteArray_Check($input)) {
+    $1 = (byte *)PyByteArray_AsString($input);
+    $2 = (size_t)PyByteArray_Size($input);
+  } else {
+    SWIG_exception_fail(SWIG_TypeError, "Expected bytes or bytearray");
+  }
+}
+%typemap(typecheck, precedence=SWIG_TYPECHECK_STRING) (byte *data, size_t dataSize) {
+  $1 = (PyBytes_Check($input) || PyByteArray_Check($input)) ? 1 : 0;
+}
+%typemap(doc) (byte *data, size_t dataSize) "data"
+
 // special handling for RENDERDOC_GetDefaultCaptureOptions to transform output parameter to a return value
 %typemap(in, numinputs=0) CaptureOptions *defaultOpts { $1 = new CaptureOptions; }
 %typemap(argout) CaptureOptions *defaultOpts {
