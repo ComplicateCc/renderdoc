@@ -40,6 +40,16 @@ static int VisModeToMeshDisplayFormat(const MeshDisplay &cfg)
     default: return (int)cfg.visualisationMode;
     case Visualisation::Secondary:
       return cfg.second.showAlpha ? MESHDISPLAY_SECONDARY_ALPHA : MESHDISPLAY_SECONDARY;
+    case Visualisation::VertexColorRGB: return MESHDISPLAY_VERTEXCOLOR_RGB;
+    case Visualisation::VertexColorAlpha: return MESHDISPLAY_VERTEXCOLOR_ALPHA;
+    case Visualisation::Normal: return MESHDISPLAY_NORMAL;
+    case Visualisation::Tangent: return MESHDISPLAY_TANGENT;
+    case Visualisation::UV0:
+    case Visualisation::UV1:
+    case Visualisation::UV2:
+    case Visualisation::UV3:
+    case Visualisation::UV4:
+    case Visualisation::UV5: return MESHDISPLAY_UV_GRADIENT;
   }
 }
 

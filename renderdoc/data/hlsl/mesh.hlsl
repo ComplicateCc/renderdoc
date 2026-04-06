@@ -285,6 +285,24 @@ float4 RENDERDOC_MeshPS(meshV2F IN)
 
     return float4(IN.secondary.xyz * abs(dot(lightDir, IN.norm)), 1);
   }
+  else if(type == MESHDISPLAY_VERTEXCOLOR_RGB)
+  {
+    return float4(IN.secondary.xyz, 1);
+  }
+  else if(type == MESHDISPLAY_VERTEXCOLOR_ALPHA)
+  {
+    return float4(IN.secondary.www, 1);
+  }
+  else if(type == MESHDISPLAY_NORMAL || type == MESHDISPLAY_TANGENT)
+  {
+    // remap from [-1, 1] to [0, 1] for visualization
+    return float4(IN.secondary.xyz * 0.5f + 0.5f, 1);
+  }
+  else if(type == MESHDISPLAY_UV_GRADIENT)
+  {
+    // show UV as gradient: u → red, v → green, frac to handle tiling
+    return float4(frac(IN.secondary.xy), 0, 1);
+  }
   else    // if(type == MESHDISPLAY_SOLID)
     return float4(MeshColour.xyz, 1);
 }

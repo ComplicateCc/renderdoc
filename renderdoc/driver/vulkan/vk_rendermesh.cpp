@@ -44,6 +44,16 @@ static int VisModeToMeshDisplayFormat(Visualisation vis, bool showAlpha)
     default: return (int)vis;
     case Visualisation::Secondary:
       return showAlpha ? MESHDISPLAY_SECONDARY_ALPHA : MESHDISPLAY_SECONDARY;
+    case Visualisation::VertexColorRGB: return MESHDISPLAY_VERTEXCOLOR_RGB;
+    case Visualisation::VertexColorAlpha: return MESHDISPLAY_VERTEXCOLOR_ALPHA;
+    case Visualisation::Normal: return MESHDISPLAY_NORMAL;
+    case Visualisation::Tangent: return MESHDISPLAY_TANGENT;
+    case Visualisation::UV0:
+    case Visualisation::UV1:
+    case Visualisation::UV2:
+    case Visualisation::UV3:
+    case Visualisation::UV4:
+    case Visualisation::UV5: return MESHDISPLAY_UV_GRADIENT;
   }
 }
 
@@ -550,7 +560,14 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
   }
 
   // can't support secondary shading without a buffer - no pipeline will have been created
-  const Visualisation finalVisualisation = (cfg.visualisationMode == Visualisation::Secondary &&
+  bool needsSecondaryBuf = (cfg.visualisationMode == Visualisation::Secondary ||
+                            cfg.visualisationMode == Visualisation::VertexColorRGB ||
+                            cfg.visualisationMode == Visualisation::VertexColorAlpha ||
+                            cfg.visualisationMode == Visualisation::Normal ||
+                            cfg.visualisationMode == Visualisation::Tangent ||
+                            (cfg.visualisationMode >= Visualisation::UV0 &&
+                             cfg.visualisationMode <= Visualisation::UV5));
+  const Visualisation finalVisualisation = (needsSecondaryBuf &&
                                             cfg.second.vertexResourceId == ResourceId())
                                                ? Visualisation::NoSolid
                                                : cfg.visualisationMode;
@@ -703,7 +720,12 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
     vt->CmdBindVertexBuffers(Unwrap(cmd), 0, 1, UnwrapPtr(vb), &offs);
   }
 
-  if(finalVisualisation == Visualisation::Secondary)
+  if(finalVisualisation == Visualisation::Secondary ||
+     finalVisualisation == Visualisation::VertexColorRGB ||
+     finalVisualisation == Visualisation::VertexColorAlpha ||
+     finalVisualisation == Visualisation::Normal ||
+     finalVisualisation == Visualisation::Tangent ||
+     (finalVisualisation >= Visualisation::UV0 && finalVisualisation <= Visualisation::UV5))
   {
     VkBuffer vb = m_pDriver->GetResourceManager()->GetHandle<VkBuffer>(cfg.second.vertexResourceId);
 
@@ -738,6 +760,16 @@ void VulkanReplay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &seco
           pipe = cache.pipes[VKMeshDisplayPipelines::ePipe_SolidDepth];
         break;
       case Visualisation::Secondary:
+      case Visualisation::VertexColorRGB:
+      case Visualisation::VertexColorAlpha:
+      case Visualisation::Normal:
+      case Visualisation::Tangent:
+      case Visualisation::UV0:
+      case Visualisation::UV1:
+      case Visualisation::UV2:
+      case Visualisation::UV3:
+      case Visualisation::UV4:
+      case Visualisation::UV5:
         pipe = cache.pipes[VKMeshDisplayPipelines::ePipe_Secondary];
         break;
       case Visualisation::Meshlet:

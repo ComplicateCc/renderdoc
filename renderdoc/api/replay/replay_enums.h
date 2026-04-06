@@ -3182,6 +3182,16 @@ enum class Visualisation : uint32_t
   Secondary,
   Explode,
   Meshlet,
+  VertexColorRGB,
+  VertexColorAlpha,
+  Normal,
+  Tangent,
+  UV0,
+  UV1,
+  UV2,
+  UV3,
+  UV4,
+  UV5,
   Count,
 };
 

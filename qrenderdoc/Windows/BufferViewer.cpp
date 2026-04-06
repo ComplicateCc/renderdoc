@@ -33,6 +33,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <QSplitter>
+#include <QStandardItemModel>
 #include <QTimer>
 #include <QToolTip>
 #include <QtMath>
@@ -2606,7 +2607,23 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
 
   ui->visualisation->clear();
   ui->visualisation->addItems(
-      {tr("None"), tr("Solid Colour"), tr("Flat Shaded"), tr("Secondary"), tr("Exploded")});
+      {tr("None"), tr("Solid Colour"), tr("Flat Shaded"), tr("Secondary"), tr("Exploded"),
+       tr("---"),
+       tr("Vertex Color (RGB)"), tr("Vertex Color (Alpha)"),
+       tr("Normal"), tr("Tangent"),
+       tr("UV0"), tr("UV1"), tr("UV2"), tr("UV3"), tr("UV4"), tr("UV5")});
+  // make the separator item disabled so it acts as a visual divider
+  {
+    QStandardItemModel *model = qobject_cast<QStandardItemModel *>(ui->visualisation->model());
+    if(model)
+    {
+      QStandardItem *sep = model->item((int)Visualisation::Meshlet);    // index 5 = separator
+      if(sep)
+      {
+        sep->setFlags(sep->flags() & ~(Qt::ItemIsSelectable | Qt::ItemIsEnabled));
+      }
+    }
+  }
   ui->visualisation->adjustSize();
   ui->visualisation->setCurrentIndex(0);
 
@@ -7192,8 +7209,52 @@ void BufferViewer::on_wireframeRender_toggled(bool checked)
   INVOKE_MEMFN(RT_UpdateAndDisplay);
 }
 
+static int FindColumnBySemantic(const BufferConfiguration &config, const QStringList &semanticNames)
+{
+  for(int i = 0; i < config.columns.count(); i++)
+  {
+    QString colName = QString(config.columns[i].name);
+    for(const QString &sem : semanticNames)
+    {
+      if(colName.compare(sem, Qt::CaseInsensitive) == 0)
+        return i;
+    }
+  }
+  return -1;
+}
+
+static int FindUVColumn(const BufferConfiguration &config, int uvIndex)
+{
+  // Try exact match: TEXCOORD0, TEXCOORD1, UV0, UV1, etc.
+  QStringList exactNames;
+  if(uvIndex == 0)
+  {
+    exactNames << lit("TEXCOORD") << lit("TEXCOORD0")
+               << lit("UV") << lit("UV0")
+               << lit("TEX") << lit("TEX0");
+  }
+  else
+  {
+    exactNames << QStringLiteral("TEXCOORD%1").arg(uvIndex)
+               << QStringLiteral("UV%1").arg(uvIndex)
+               << QStringLiteral("TEX%1").arg(uvIndex);
+  }
+
+  return FindColumnBySemantic(config, exactNames);
+}
+
 void BufferViewer::on_visualisation_currentIndexChanged(int index)
 {
+  // skip the separator item (index 5 = Meshlet position used as separator "---")
+  if(index == (int)Visualisation::Meshlet)
+  {
+    // don't allow selecting the separator, revert to previous
+    ui->visualisation->blockSignals(true);
+    ui->visualisation->setCurrentIndex((int)m_Config.visualisationMode);
+    ui->visualisation->blockSignals(false);
+    return;
+  }
+
   ui->wireframeRender->setEnabled(index > 0);
 
   if(!ui->wireframeRender->isEnabled())
@@ -7208,27 +7269,95 @@ void BufferViewer::on_visualisation_currentIndexChanged(int index)
   ui->exploderReset->setHidden(explodeHidden);
   ui->exploderScaleLabel->setHidden(explodeHidden);
   ui->exploderScale->setHidden(explodeHidden);
-  // Because the vertex/prim highlights draw from a new, temporary vertex buffer,
-  // those vertex IDs (which determine the explode displacement) won't necessarily
-  // match the original mesh's IDs and exploded vertices.  Because of this, it seems
-  // cleanest to just avoid drawing the highlighted vert/prim with the explode
-  // visualisation (while also getting back a little room on the toolbar used by
-  // the extra exploder controls).
   ui->highlightVerts->setHidden(!explodeHidden);
   UpdateHighlightVerts();
 
   m_Config.visualisationMode = (Visualisation)qMax(0, index);
 
-  m_ModelIn->setSecondaryColumn(m_ModelIn->secondaryColumn(),
-                                m_Config.visualisationMode == Visualisation::Secondary,
-                                m_ModelIn->secondaryAlpha());
-  m_ModelOut1->setSecondaryColumn(m_ModelOut1->secondaryColumn(),
-                                  m_Config.visualisationMode == Visualisation::Secondary,
-                                  m_ModelOut1->secondaryAlpha());
-  m_ModelOut2->setSecondaryColumn(m_ModelOut2->secondaryColumn(),
-                                  m_Config.visualisationMode == Visualisation::Secondary,
-                                  m_ModelOut2->secondaryAlpha());
+  // For vertex data visualization modes, auto-detect the column by semantic name
+  Visualisation vis = m_Config.visualisationMode;
+  bool isVertexDataVis = (vis == Visualisation::VertexColorRGB ||
+                          vis == Visualisation::VertexColorAlpha ||
+                          vis == Visualisation::Normal ||
+                          vis == Visualisation::Tangent ||
+                          (vis >= Visualisation::UV0 && vis <= Visualisation::UV5));
 
+  if(isVertexDataVis)
+  {
+    // Determine which semantic names to search for
+    int autoCol = -1;
+    const BufferConfiguration &cfg = m_ModelIn->getConfig();
+
+    if(vis == Visualisation::VertexColorRGB || vis == Visualisation::VertexColorAlpha)
+    {
+      autoCol = FindColumnBySemantic(cfg, QStringList() << lit("COLOR") << lit("COLOR0")
+                                                        << lit("COL") << lit("COL0"));
+    }
+    else if(vis == Visualisation::Normal)
+    {
+      autoCol = FindColumnBySemantic(cfg, QStringList() << lit("NORMAL") << lit("NORMAL0"));
+    }
+    else if(vis == Visualisation::Tangent)
+    {
+      autoCol = FindColumnBySemantic(cfg, QStringList() << lit("TANGENT") << lit("TANGENT0"));
+    }
+    else if(vis >= Visualisation::UV0 && vis <= Visualisation::UV5)
+    {
+      int uvIdx = (int)vis - (int)Visualisation::UV0;
+      autoCol = FindUVColumn(cfg, uvIdx);
+    }
+
+    if(autoCol >= 0)
+    {
+      m_ModelIn->setSecondaryColumn(autoCol, true, false);
+    }
+    // Also try to set for output models
+    if(vis == Visualisation::VertexColorRGB || vis == Visualisation::VertexColorAlpha ||
+       vis == Visualisation::Normal || vis == Visualisation::Tangent)
+    {
+      // output stages may have different column layout, search again
+      const BufferConfiguration &out1Cfg = m_ModelOut1->getConfig();
+      const BufferConfiguration &out2Cfg = m_ModelOut2->getConfig();
+      int out1Col = -1, out2Col = -1;
+
+      if(vis == Visualisation::VertexColorRGB || vis == Visualisation::VertexColorAlpha)
+      {
+        QStringList sem = QStringList() << lit("COLOR") << lit("COLOR0");
+        out1Col = FindColumnBySemantic(out1Cfg, sem);
+        out2Col = FindColumnBySemantic(out2Cfg, sem);
+      }
+      else if(vis == Visualisation::Normal)
+      {
+        QStringList sem = QStringList() << lit("NORMAL") << lit("NORMAL0");
+        out1Col = FindColumnBySemantic(out1Cfg, sem);
+        out2Col = FindColumnBySemantic(out2Cfg, sem);
+      }
+      else if(vis == Visualisation::Tangent)
+      {
+        QStringList sem = QStringList() << lit("TANGENT") << lit("TANGENT0");
+        out1Col = FindColumnBySemantic(out1Cfg, sem);
+        out2Col = FindColumnBySemantic(out2Cfg, sem);
+      }
+
+      if(out1Col >= 0)
+        m_ModelOut1->setSecondaryColumn(out1Col, true, false);
+      if(out2Col >= 0)
+        m_ModelOut2->setSecondaryColumn(out2Col, true, false);
+    }
+  }
+  else
+  {
+    bool secEnabled = (vis == Visualisation::Secondary);
+    m_ModelIn->setSecondaryColumn(m_ModelIn->secondaryColumn(), secEnabled,
+                                  m_ModelIn->secondaryAlpha());
+    m_ModelOut1->setSecondaryColumn(m_ModelOut1->secondaryColumn(), secEnabled,
+                                    m_ModelOut1->secondaryAlpha());
+    m_ModelOut2->setSecondaryColumn(m_ModelOut2->secondaryColumn(), secEnabled,
+                                    m_ModelOut2->secondaryAlpha());
+  }
+
+  UI_ConfigureFormats();
+  UpdateCurrentMeshConfig();
   INVOKE_MEMFN(RT_UpdateAndDisplay);
 }
 

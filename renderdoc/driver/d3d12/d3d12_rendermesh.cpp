@@ -45,6 +45,16 @@ static uint32_t VisModeToMeshDisplayFormat(const MeshDisplay &cfg)
     default: return (uint32_t)cfg.visualisationMode;
     case Visualisation::Secondary:
       return cfg.second.showAlpha ? MESHDISPLAY_SECONDARY_ALPHA : MESHDISPLAY_SECONDARY;
+    case Visualisation::VertexColorRGB: return MESHDISPLAY_VERTEXCOLOR_RGB;
+    case Visualisation::VertexColorAlpha: return MESHDISPLAY_VERTEXCOLOR_ALPHA;
+    case Visualisation::Normal: return MESHDISPLAY_NORMAL;
+    case Visualisation::Tangent: return MESHDISPLAY_TANGENT;
+    case Visualisation::UV0:
+    case Visualisation::UV1:
+    case Visualisation::UV2:
+    case Visualisation::UV3:
+    case Visualisation::UV4:
+    case Visualisation::UV5: return MESHDISPLAY_UV_GRADIENT;
   }
 }
 
@@ -450,12 +460,24 @@ void D3D12Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secon
   }
 
   // can't support secondary shading without a buffer - no pipeline will have been created
-  const Visualisation finalVisualisation = (cfg.visualisationMode == Visualisation::Secondary &&
+  bool needsSecondaryBuf = (cfg.visualisationMode == Visualisation::Secondary ||
+                            cfg.visualisationMode == Visualisation::VertexColorRGB ||
+                            cfg.visualisationMode == Visualisation::VertexColorAlpha ||
+                            cfg.visualisationMode == Visualisation::Normal ||
+                            cfg.visualisationMode == Visualisation::Tangent ||
+                            (cfg.visualisationMode >= Visualisation::UV0 &&
+                             cfg.visualisationMode <= Visualisation::UV5));
+  const Visualisation finalVisualisation = (needsSecondaryBuf &&
                                             cfg.second.vertexResourceId == ResourceId())
                                                ? Visualisation::NoSolid
                                                : cfg.visualisationMode;
 
-  if(finalVisualisation == Visualisation::Secondary)
+  if(finalVisualisation == Visualisation::Secondary ||
+     finalVisualisation == Visualisation::VertexColorRGB ||
+     finalVisualisation == Visualisation::VertexColorAlpha ||
+     finalVisualisation == Visualisation::Normal ||
+     finalVisualisation == Visualisation::Tangent ||
+     (finalVisualisation >= Visualisation::UV0 && finalVisualisation <= Visualisation::UV5))
   {
     D3D12MarkerRegion::Set(list, "Secondary");
 
@@ -495,6 +517,16 @@ void D3D12Replay::RenderMesh(uint32_t eventId, const rdcarray<MeshFormat> &secon
           pipe = cache.pipes[MeshDisplayPipelines::ePipe_SolidDepth];
         break;
       case Visualisation::Secondary:
+      case Visualisation::VertexColorRGB:
+      case Visualisation::VertexColorAlpha:
+      case Visualisation::Normal:
+      case Visualisation::Tangent:
+      case Visualisation::UV0:
+      case Visualisation::UV1:
+      case Visualisation::UV2:
+      case Visualisation::UV3:
+      case Visualisation::UV4:
+      case Visualisation::UV5:
         pipe = cache.pipes[MeshDisplayPipelines::ePipe_Secondary];
         break;
       case Visualisation::Meshlet:

@@ -43,6 +43,16 @@ static uint32_t VisModeToMeshDisplayFormat(const MeshDisplay &cfg)
     case Visualisation::Meshlet:
       RDCERR("D3D11 does not support meshlet rendering");
       return MESHDISPLAY_SOLID;
+    case Visualisation::VertexColorRGB: return MESHDISPLAY_VERTEXCOLOR_RGB;
+    case Visualisation::VertexColorAlpha: return MESHDISPLAY_VERTEXCOLOR_ALPHA;
+    case Visualisation::Normal: return MESHDISPLAY_NORMAL;
+    case Visualisation::Tangent: return MESHDISPLAY_TANGENT;
+    case Visualisation::UV0:
+    case Visualisation::UV1:
+    case Visualisation::UV2:
+    case Visualisation::UV3:
+    case Visualisation::UV4:
+    case Visualisation::UV5: return MESHDISPLAY_UV_GRADIENT;
   }
 }
 

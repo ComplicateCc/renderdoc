@@ -66,6 +66,24 @@ void main(void)
 
     color_out = vec4(SECONDARY_NAME.xyz * abs(dot(lightDir, NORM_NAME.xyz)), 1);
   }
+  else if(type == MESHDISPLAY_VERTEXCOLOR_RGB)
+  {
+    color_out = vec4(SECONDARY_NAME.xyz, 1);
+  }
+  else if(type == MESHDISPLAY_VERTEXCOLOR_ALPHA)
+  {
+    color_out = vec4(SECONDARY_NAME.www, 1);
+  }
+  else if(type == MESHDISPLAY_NORMAL || type == MESHDISPLAY_TANGENT)
+  {
+    // remap from [-1, 1] to [0, 1] for visualization
+    color_out = vec4(SECONDARY_NAME.xyz * 0.5 + 0.5, 1);
+  }
+  else if(type == MESHDISPLAY_UV_GRADIENT)
+  {
+    // show UV as gradient: u → red, v → green, frac to handle tiling
+    color_out = vec4(fract(SECONDARY_NAME.xy), 0, 1);
+  }
   else    // if(type == MESHDISPLAY_SOLID)
   {
     color_out = vec4(Mesh.color.xyz, 1);
