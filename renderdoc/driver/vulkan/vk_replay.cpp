@@ -5506,6 +5506,12 @@ void VulkanReplay::SetProxyTextureData(ResourceId texid, const Subresource &sub,
   VULKANNOTIMP("SetProxyTextureData");
 }
 
+void VulkanReplay::OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data,
+                                       size_t dataSize)
+{
+  VULKANNOTIMP("OverrideTextureData");
+}
+
 bool VulkanReplay::IsTextureSupported(const TextureDescription &tex)
 {
   return true;

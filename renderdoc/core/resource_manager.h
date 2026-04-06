@@ -708,6 +708,10 @@ protected:
   // used during capture - map from real resource to its wrapper (other way can be done just with an
   // Unwrap)
   std::map<RealResourceType, WrappedResourceType> m_WrapperMap;
+public:
+  // Expose wrapper map for iterating over all wrapped resources (e.g. to update SRVs)
+  const std::map<RealResourceType, WrappedResourceType> &GetWrapperMap() const { return m_WrapperMap; }
+protected:
 
   // used during capture - holds resources referenced in current frame (and how they're referenced)
   std::unordered_map<ResourceId, FrameRefType> m_FrameReferencedResources;

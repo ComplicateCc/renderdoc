@@ -4137,6 +4137,12 @@ void GLReplay::SetProxyTextureData(ResourceId texid, const Subresource &sub, byt
   }
 }
 
+void GLReplay::OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data,
+                                   size_t dataSize)
+{
+  RDCERR("OverrideTextureData not yet implemented for OpenGL");
+}
+
 bool GLReplay::IsTextureSupported(const TextureDescription &tex)
 {
   // GL can't decide if these formats are BGRA or RGBA order.

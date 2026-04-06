@@ -2674,6 +2674,226 @@ rdcarray<ShaderSourcePrefix> D3D11Replay::GetCustomShaderSourcePrefixes()
   };
 }
 
+void D3D11Replay::OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data,
+                                      size_t dataSize)
+{
+  // Strategy: Create a new DEFAULT texture with user data, then swap the
+  // underlying real D3D11 resource pointer inside the existing wrapped object.
+  //
+  // This is the only reliable approach because:
+  // - IMMUTABLE textures cannot be updated via UpdateSubresource or CopyResource
+  // - ReplaceResource only affects ResourceManager lookups, but SRVs already hold
+  //   direct pointers to the real D3D11 resource, so they won't pick up the replacement
+  // - By swapping the real pointer, ALL existing SRVs that reference this wrapped texture
+  //   will automatically use the new data on the next draw call
+
+  auto it = WrappedID3D11Texture2D1::m_TextureList.find(texid);
+  if(it != WrappedID3D11Texture2D1::m_TextureList.end())
+  {
+    WrappedID3D11Texture2D1 *wrapTex = (WrappedID3D11Texture2D1 *)it->second.m_Texture;
+    ID3D11Texture2D *realTex = wrapTex->GetReal();
+
+    D3D11_TEXTURE2D_DESC desc;
+    realTex->GetDesc(&desc);
+
+    RDCLOG("OverrideTextureData: texid=%s format=%s usage=%u dim=%ux%u mips=%u",
+           ToStr(texid).c_str(), ToStr(desc.Format).c_str(), desc.Usage, desc.Width, desc.Height,
+           desc.MipLevels);
+
+    // Step 1: Create a staging texture to read original data from the current real texture
+    D3D11_TEXTURE2D_DESC stagingDesc = desc;
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.BindFlags = 0;
+    stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    stagingDesc.MiscFlags = 0;
+
+    ID3D11Texture2D *stagingTex = NULL;
+    HRESULT hr = m_pDevice->GetReal()->CreateTexture2D(&stagingDesc, NULL, &stagingTex);
+    if(FAILED(hr))
+    {
+      RDCERR("OverrideTextureData: Failed to create staging texture, HRESULT: %s",
+             ToStr(hr).c_str());
+      return;
+    }
+
+    m_pImmediateContext->GetReal()->CopyResource(stagingTex, realTex);
+
+    // Step 2: Read all subresource data from staging
+    UINT numSubresources = desc.MipLevels * desc.ArraySize;
+    rdcarray<D3D11_SUBRESOURCE_DATA> initData;
+    initData.resize(numSubresources);
+    rdcarray<bytebuf> subresourceData;
+    subresourceData.resize(numSubresources);
+
+    for(UINT s = 0; s < numSubresources; s++)
+    {
+      D3D11_MAPPED_SUBRESOURCE mapped;
+      hr = m_pImmediateContext->GetReal()->Map(stagingTex, s, D3D11_MAP_READ, 0, &mapped);
+      if(SUCCEEDED(hr))
+      {
+        UINT mipLevel = s % desc.MipLevels;
+        UINT mipH = RDCMAX(1U, desc.Height >> mipLevel);
+        UINT numRows = mipH;
+        if(IsBlockFormat(desc.Format))
+          numRows = RDCMAX(1U, (mipH + 3) / 4);
+
+        size_t totalSize = (size_t)mapped.RowPitch * numRows;
+        subresourceData[s].resize(totalSize);
+        memcpy(subresourceData[s].data(), mapped.pData, totalSize);
+
+        initData[s].pSysMem = subresourceData[s].data();
+        initData[s].SysMemPitch = mapped.RowPitch;
+        initData[s].SysMemSlicePitch = 0;
+
+        m_pImmediateContext->GetReal()->Unmap(stagingTex, s);
+      }
+      else
+      {
+        RDCERR("OverrideTextureData: Failed to map staging subresource %u", s);
+      }
+    }
+
+    stagingTex->Release();
+
+    // Step 3: Override the target subresource with user data
+    UINT targetSub = D3D11CalcSubresource(sub.mip, sub.slice, desc.MipLevels);
+    if(targetSub < numSubresources)
+    {
+      UINT mipWidth = RDCMAX(1U, desc.Width >> sub.mip);
+      UINT rowPitch;
+      if(IsBlockFormat(desc.Format))
+      {
+        UINT blocksWide = RDCMAX(1U, (mipWidth + 3) / 4);
+        UINT blockSize = (desc.Format == DXGI_FORMAT_BC1_TYPELESS ||
+                          desc.Format == DXGI_FORMAT_BC1_UNORM ||
+                          desc.Format == DXGI_FORMAT_BC1_UNORM_SRGB ||
+                          desc.Format == DXGI_FORMAT_BC4_TYPELESS ||
+                          desc.Format == DXGI_FORMAT_BC4_UNORM ||
+                          desc.Format == DXGI_FORMAT_BC4_SNORM)
+                             ? 8
+                             : 16;
+        rowPitch = blocksWide * blockSize;
+      }
+      else
+      {
+        rowPitch = mipWidth * GetByteSize(1, 1, 1, desc.Format, 0);
+      }
+
+      subresourceData[targetSub].resize(dataSize);
+      memcpy(subresourceData[targetSub].data(), data, dataSize);
+      initData[targetSub].pSysMem = subresourceData[targetSub].data();
+      initData[targetSub].SysMemPitch = rowPitch;
+      initData[targetSub].SysMemSlicePitch = 0;
+    }
+
+    // Step 4: Create a temporary DEFAULT texture with our override data
+    D3D11_TEXTURE2D_DESC newDesc = desc;
+    newDesc.Usage = D3D11_USAGE_DEFAULT;
+    newDesc.CPUAccessFlags = 0;
+    if(newDesc.BindFlags == 0)
+      newDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    ID3D11Texture2D *newTex = NULL;
+    hr = m_pDevice->GetReal()->CreateTexture2D(&newDesc, initData.data(), &newTex);
+    if(FAILED(hr))
+    {
+      RDCERR("OverrideTextureData: Failed to create temp texture, HRESULT: %s",
+             ToStr(hr).c_str());
+      return;
+    }
+
+    // Step 5: Try CopyResource from new DEFAULT texture to old real texture.
+    // This works if the old texture is DEFAULT or STAGING.
+    // For IMMUTABLE textures this will fail, in which case we fall back to pointer swap.
+    RDCLOG("OverrideTextureData: Trying CopyResource to real texture (usage=%u)...", desc.Usage);
+
+    if(desc.Usage == D3D11_USAGE_DEFAULT || desc.Usage == D3D11_USAGE_STAGING)
+    {
+      // Direct copy works for DEFAULT/STAGING textures
+      m_pImmediateContext->GetReal()->CopyResource(realTex, newTex);
+      newTex->Release();
+      RDCLOG("OverrideTextureData: CopyResource succeeded (usage=%u)", desc.Usage);
+    }
+    else
+    {
+      // IMMUTABLE or DYNAMIC - need pointer swap + SRV rebuild
+      RDCLOG("OverrideTextureData: IMMUTABLE texture, using pointer swap + SRV rebuild");
+
+      ID3D11Texture2D *oldReal = wrapTex->SwapReal(newTex);
+
+      // Rebuild all SRVs that reference this texture by iterating the wrapper map.
+      // We must collect first, then modify - modifying the map during iteration is UB.
+      int srvUpdated = 0;
+      rdcarray<WrappedID3D11ShaderResourceView1 *> srvList;
+      {
+        auto &wrapMap = m_pDevice->GetResourceManager()->GetWrapperMap();
+        for(auto &entry : wrapMap)
+        {
+          if(WrappedID3D11ShaderResourceView1::IsAlloc(entry.second))
+          {
+            WrappedID3D11ShaderResourceView1 *wrapSRV =
+                (WrappedID3D11ShaderResourceView1 *)entry.second;
+            if(wrapSRV->GetResourceResID() == texid)
+              srvList.push_back(wrapSRV);
+          }
+        }
+      }
+      for(WrappedID3D11ShaderResourceView1 *wrapSRV : srvList)
+      {
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+        wrapSRV->GetReal()->GetDesc(&srvDesc);
+
+        ID3D11ShaderResourceView *newRealSRV = NULL;
+        HRESULT srvHr =
+            m_pDevice->GetReal()->CreateShaderResourceView(newTex, &srvDesc, &newRealSRV);
+        if(SUCCEEDED(srvHr))
+        {
+          ID3D11ShaderResourceView *oldRealSRV = wrapSRV->SwapReal(newRealSRV);
+          SAFE_RELEASE(oldRealSRV);
+          srvUpdated++;
+        }
+      }
+
+      RDCLOG("OverrideTextureData: Updated %d SRVs, releasing old texture", srvUpdated);
+      SAFE_RELEASE(oldReal);
+    }
+
+    // Step 6: Update the initial contents so that future ReplayLog calls (which call
+    // ApplyInitialContents) will use our overridden data instead of the original.
+    {
+      // Create a new DEFAULT copy to serve as the initial contents resource
+      D3D11_TEXTURE2D_DESC copyDesc = desc;
+      copyDesc.Usage = D3D11_USAGE_DEFAULT;
+      copyDesc.CPUAccessFlags = 0;
+      if(copyDesc.BindFlags == 0)
+        copyDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+      ID3D11Texture2D *initCopy = NULL;
+      HRESULT copyHr =
+          m_pDevice->GetReal()->CreateTexture2D(&copyDesc, initData.data(), &initCopy);
+      if(SUCCEEDED(copyHr))
+      {
+        D3D11InitialContents initContents(Resource_Texture2D, (ID3D11Resource *)initCopy);
+        m_pDevice->GetResourceManager()->SetInitialContents(texid, initContents);
+        RDCLOG("OverrideTextureData: Updated initial contents for texture %s",
+               ToStr(texid).c_str());
+      }
+      else
+      {
+        RDCERR("OverrideTextureData: Failed to create initial contents copy, HRESULT: %s",
+               ToStr(copyHr).c_str());
+      }
+    }
+
+    RDCLOG("OverrideTextureData: Successfully overrode texture %s (%ux%u, %u bytes, format=%s)",
+           ToStr(texid).c_str(), desc.Width, desc.Height, (uint32_t)dataSize,
+           ToStr(desc.Format).c_str());
+    return;
+  }
+
+  RDCERR("OverrideTextureData: Texture %s not found in Texture2D list", ToStr(texid).c_str());
+}
+
 void D3D11Replay::ReplaceResource(ResourceId from, ResourceId to)
 {
   auto fromit = WrappedShader::m_ShaderList.find(from);

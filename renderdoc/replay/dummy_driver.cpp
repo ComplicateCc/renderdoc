@@ -488,6 +488,11 @@ void DummyDriver::SetProxyTextureData(ResourceId texid, const Subresource &sub, 
 {
 }
 
+void DummyDriver::OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data,
+                                      size_t dataSize)
+{
+}
+
 bool DummyDriver::IsTextureSupported(const TextureDescription &tex)
 {
   return true;

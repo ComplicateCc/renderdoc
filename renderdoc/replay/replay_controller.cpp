@@ -2144,6 +2144,20 @@ void ReplayController::FreeCustomShader(ResourceId id)
   m_pDevice->FreeCustomShader(id);
 }
 
+void ReplayController::OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data,
+                                           size_t dataSize)
+{
+  CHECK_REPLAY_THREAD();
+
+  m_pDevice->OverrideTextureData(texid, sub, data, dataSize);
+  FatalErrorCheck();
+
+  // Refresh outputs to show the overridden texture
+  for(size_t i = 0; i < m_Outputs.size(); i++)
+    if(m_Outputs[i]->GetType() != ReplayOutputType::Headless)
+      m_Outputs[i]->Display();
+}
+
 void ReplayController::ReplaceResource(ResourceId from, ResourceId to)
 {
   CHECK_REPLAY_THREAD();

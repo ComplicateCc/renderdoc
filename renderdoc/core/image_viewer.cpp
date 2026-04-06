@@ -381,6 +381,10 @@ public:
   {
     RDCERR("Calling proxy-render functions on an image viewer");
   }
+  void OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize)
+  {
+    RDCERR("OverrideTextureData not supported on image viewer");
+  }
   bool IsTextureSupported(const TextureDescription &tex) { return true; }
   bool NeedRemapForFetch(const ResourceFormat &format) { return false; }
   ResourceId CreateProxyBuffer(const BufferDescription &templateBuf)

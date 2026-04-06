@@ -477,6 +477,7 @@ public:
 
   ResourceId CreateProxyTexture(const TextureDescription &templateTex);
   void SetProxyTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize);
+  void OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize);
   bool IsTextureSupported(const TextureDescription &tex);
   bool NeedRemapForFetch(const ResourceFormat &format);
 

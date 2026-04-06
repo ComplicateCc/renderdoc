@@ -588,6 +588,12 @@ public:
   {
     RDCERR("Calling proxy-render functions on a proxy serialiser");
   }
+  void OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize)
+  {
+    // OverrideTextureData is local-only (writes directly to GPU).
+    // In proxy mode, this is a no-op since we don't have local GPU access.
+    RDCERR("OverrideTextureData not supported in proxy mode");
+  }
 
   bool IsTextureSupported(const TextureDescription &tex) { return true; }
   ResourceId CreateProxyBuffer(const BufferDescription &templateBuf)

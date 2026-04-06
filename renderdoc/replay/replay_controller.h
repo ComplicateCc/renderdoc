@@ -181,6 +181,7 @@ public:
   ResourceId CreateProxyTexture(const TextureDescription &templateTex);
   void SetProxyTextureData(ResourceId proxyid, const Subresource &sub, byte *data,
                            size_t dataSize);
+  void OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize);
   void ClearReplayCache();
   void ReloadShaderDebugInformation();
 

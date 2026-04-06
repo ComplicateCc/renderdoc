@@ -252,6 +252,7 @@ public:
   void BuildTargetShader(ShaderEncoding sourceEncoding, const bytebuf &source, const rdcstr &entry,
                          const ShaderCompileFlags &compileFlags, ShaderStage type, ResourceId &id,
                          rdcstr &errors);
+  void OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data, size_t dataSize);
   void ReplaceResource(ResourceId from, ResourceId to);
   void RemoveReplacement(ResourceId id);
   void ClearReplayCache();

@@ -767,6 +767,24 @@ filled with data using :meth:`SetProxyTextureData` and then substituted using :m
   virtual void SetProxyTextureData(ResourceId proxyid, const Subresource &sub, byte *data,
                                    size_t dataSize) = 0;
 
+  DOCUMENT(R"(Directly overwrite the contents of a texture resource that exists in the capture.
+
+This writes data directly to the GPU resource after the frame has been replayed to the current event.
+Unlike :meth:`ReplaceResource`, this does not create a new resource or modify the replay pipeline.
+It simply overwrites the texel data in-place, which takes effect immediately for the current event's
+output rendering.
+
+.. note::
+  The data must match the texture's native format and dimensions exactly. For block-compressed
+  textures (BC1-BC7), provide data in the compressed block format.
+
+:param ResourceId texid: The id of the texture to overwrite.
+:param Subresource sub: The subresource to overwrite.
+:param bytebuf data: The raw data matching the texture's native format.
+)");
+  virtual void OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data,
+                                   size_t dataSize) = 0;
+
   DOCUMENT(R"(Retrieve the information about the frame contained in the capture.
 
 :return: The frame information.
