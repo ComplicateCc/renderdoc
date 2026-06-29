@@ -1,0 +1,84 @@
+# RenderDoc — Agent Harness Analysis & SOP
+
+## Software Overview
+
+**RenderDoc** is a frame-capture based graphics debugger supporting Vulkan, D3D11,
+D3D12, OpenGL, and OpenGL ES on Windows, Linux, Android, and Nintendo Switch.
+It is completely open-source under the MIT license.
+
+## Architecture Analysis
+
+### Backend Engine
+- **Core Library**: `renderdoc.dll` / `librenderdoc.so` — C++ graphics debugger core
+- **Python Bindings**: `renderdoc` Python module via SWIG — provides full replay API
+- **Native CLI**: `renderdoccmd` — existing command-line interface with subcommands
+
+### Existing CLI Commands (renderdoccmd)
+| Command | Description |
+|---------|-------------|
+| `capture` | Launch executable and capture frames |
+| `inject` | Inject into running process |
+| `thumb` | Extract embedded thumbnail from .rdc |
+| `replay` | Replay capture with preview window |
+| `convert` | Convert between capture formats |
+| `remoteserver` | Start remote replay server |
+| `test` | Run unit/functional tests |
+| `embed` | Inject data section into capture |
+| `extract` | Extract data section from capture |
+| `vulkanlayer` | Manage Vulkan layer registration |
+
+### Python Replay API (key interfaces)
+- `rd.OpenCaptureFile()` → `ICaptureFile`
+- `cap.OpenFile(path, format, progress)` → open .rdc files
+- `cap.OpenCapture(options, progress)` → `IReplayController`
+- `controller.GetRootActions()` → list all draw calls/actions
+- `controller.SetFrameEvent(eventId, force)` → navigate to event
+- `controller.GetPipelineState()` → inspect GPU pipeline
+- `controller.GetTextures()` → list all textures
+- `controller.SaveTexture(texsave, path)` → export texture to file
+- `controller.GetBufferData(id, offset, len)` → read GPU buffers
+- `controller.DisassembleShader(pipe, refl, target)` → shader disassembly
+- `controller.EnumerateCounters()` / `FetchCounters()` → GPU performance counters
+- `controller.GetPostVSData()` → post-vertex-shader mesh data
+
+### Data Model
+- **Capture files**: `.rdc` binary format with embedded sections
+- **Sections**: Thumbnail, frame info, structured data, driver-specific data
+- **Structured data**: Hierarchical action tree (draw calls, state changes, markers)
+- **Resources**: Textures, buffers, shaders, pipeline states
+
+### GUI-to-API Mappings
+| GUI Feature | Python API |
+|-------------|-----------|
+| Open capture | `OpenCaptureFile()` → `OpenFile()` → `OpenCapture()` |
+| Event browser | `GetRootActions()`, iterate action tree |
+| Texture viewer | `GetTextures()`, `SaveTexture()` |
+| Pipeline state | `GetPipelineState()` |
+| Mesh viewer | `GetPostVSData()`, `GetVBuffers()` |
+| Shader viewer | `DisassembleShader()`, `GetShaderReflection()` |
+| Performance counters | `EnumerateCounters()`, `FetchCounters()` |
+| Buffer viewer | `GetBufferData()` |
+| Pixel history | `PixelHistory()` |
+| Shader debug | `DebugPixel()`, `DebugVertex()`, `DebugThread()` |
+| Capture | `ExecuteAndInject()`, `InjectIntoProcess()` |
+| Remote replay | `CreateRemoteServerConnection()`, `remote.OpenCapture()` |
+
+## CLI Design
+
+### Command Groups
+1. **capture** — Launch and capture applications
+2. **info** — Inspect capture file metadata
+3. **actions** — Browse and analyze draw calls/actions
+4. **textures** — List and export textures
+5. **buffers** — Inspect and export buffer data
+6. **shaders** — View and disassemble shaders
+7. **pipeline** — Inspect pipeline state at any event
+8. **counters** — GPU performance counter analysis
+9. **convert** — Format conversion
+10. **session** — Session state management
+
+### State Model
+- Current capture file path
+- Current event ID (position in action tree)
+- Replay controller reference
+- Session history for undo/redo

@@ -3356,6 +3356,12 @@ rdcarray<uint32_t> D3D12Replay::GetPassEvents(uint32_t eventId)
   return passEvents;
 }
 
+void D3D12Replay::OverrideTextureData(ResourceId texid, const Subresource &sub, byte *data,
+                                      size_t dataSize)
+{
+  RDCERR("OverrideTextureData not yet implemented for D3D12");
+}
+
 bool D3D12Replay::IsTextureSupported(const TextureDescription &tex)
 {
   return MakeDXGIFormat(tex.format) != DXGI_FORMAT_UNKNOWN;

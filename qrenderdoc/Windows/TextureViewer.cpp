@@ -27,6 +27,8 @@
 #include <math.h>
 #include <QClipboard>
 #include <QColorDialog>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QFileSystemWatcher>
 #include <QFontDatabase>
 #include <QItemDelegate>
@@ -37,6 +39,7 @@
 #include <QStyledItemDelegate>
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
+#include "Code/TextureReplacer.h"
 #include "Dialogs/TextureSaveDialog.h"
 #include "Widgets/Extended/RDHeaderView.h"
 #include "Widgets/ResourcePreview.h"
@@ -543,6 +546,84 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
     });
   }
 
+  // Texture Replacement button
+  {
+    m_TextureReplacer = new TextureReplacer(m_Ctx);
+
+    m_ReplaceButton = new QToolButton(this);
+    m_ReplaceButton->setToolTip(tr("Replace Texture"));
+    m_ReplaceButton->setAutoRaise(true);
+    m_ReplaceButton->setPopupMode(QToolButton::InstantPopup);
+    m_ReplaceButton->setText(tr("Replace"));
+
+    QMenu *replaceMenu = new QMenu(this);
+    m_ReplaceButton->setMenu(replaceMenu);
+
+    QObject::connect(replaceMenu, &QMenu::aboutToShow, [this, replaceMenu]() {
+      replaceMenu->clear();
+
+      ResourceId curId = GetCurrentResource();
+      bool hasCur = (curId != ResourceId());
+      bool isReplaced = hasCur && m_TextureReplacer->IsReplaced(curId);
+
+      QAction *fromFile = replaceMenu->addAction(tr("From File..."));
+      fromFile->setEnabled(hasCur);
+      QObject::connect(fromFile, &QAction::triggered, [this, curId]() {
+        QString path = RDDialog::getOpenFileName(
+            this, tr("Select Replacement Texture"), QString(),
+            tr("Image Files (*.png *.jpg *.jpeg *.bmp *.tga *.hdr *.exr *.dds);;All Files (*.*)"));
+        if(!path.isEmpty())
+          m_TextureReplacer->ReplaceFromFile(curId, path);
+      });
+
+      replaceMenu->addSeparator();
+
+      QMenu *builtinMenu = replaceMenu->addMenu(tr("Built-in Textures"));
+      builtinMenu->setEnabled(hasCur);
+
+      auto addBuiltin = [this, builtinMenu, curId](const QString &name, BuiltinTexture type) {
+        QAction *act = builtinMenu->addAction(name);
+        QObject::connect(act, &QAction::triggered,
+                         [this, curId, type]() { m_TextureReplacer->ReplaceWithBuiltin(curId, type); });
+      };
+      addBuiltin(tr("White"), BuiltinTexture::White);
+      addBuiltin(tr("Black"), BuiltinTexture::Black);
+      addBuiltin(tr("Gray (50%)"), BuiltinTexture::Gray);
+      addBuiltin(tr("Checkerboard"), BuiltinTexture::Checkerboard);
+      addBuiltin(tr("UV Gradient"), BuiltinTexture::UVGradient);
+      addBuiltin(tr("Normal Up (Blue)"), BuiltinTexture::NormalUp);
+
+      replaceMenu->addSeparator();
+
+      QAction *restore = replaceMenu->addAction(tr("Restore Original"));
+      restore->setEnabled(isReplaced);
+      QObject::connect(restore, &QAction::triggered,
+                       [this, curId]() { m_TextureReplacer->RestoreTexture(curId); });
+
+      QAction *restoreAll = replaceMenu->addAction(tr("Restore All"));
+      restoreAll->setEnabled(!m_TextureReplacer->GetAllReplacements().isEmpty());
+      QObject::connect(restoreAll, &QAction::triggered,
+                       [this]() { m_TextureReplacer->RestoreAll(); });
+    });
+
+    // Insert after saveTex button in the toolbar layout
+    QLayout *toolbarLayout = ui->saveTex->parentWidget()->layout();
+    if(QHBoxLayout *hbox = qobject_cast<QHBoxLayout *>(toolbarLayout))
+    {
+      int saveIdx = hbox->indexOf(ui->saveTex);
+      if(saveIdx >= 0)
+        hbox->insertWidget(saveIdx + 1, m_ReplaceButton);
+      else
+        hbox->addWidget(m_ReplaceButton);
+    }
+
+    // Replaced status label (shown next to texture name area)
+    m_ReplacedLabel = new QLabel(this);
+    m_ReplacedLabel->setText(tr(" [REPLACED]"));
+    m_ReplacedLabel->setStyleSheet(lit("QLabel { color: #FF6600; font-weight: bold; }"));
+    m_ReplacedLabel->setVisible(false);
+  }
+
   QObject::connect(ui->textureList, &RDTreeWidget::itemActivated, this,
                    &TextureViewer::texture_itemActivated);
 
@@ -702,6 +783,7 @@ TextureViewer::~TextureViewer()
 
   m_Ctx.BuiltinWindowClosed(this);
   m_Ctx.RemoveCaptureViewer(this);
+  delete m_TextureReplacer;
   delete ui;
 }
 
@@ -1223,6 +1305,12 @@ void TextureViewer::UI_UpdateTextureDetails()
   }
 
   ui->texStatusName->setText(m_Ctx.GetResourceName(current.resourceId) + lit(" - "));
+
+  // Update texture replacement indicator
+  if(m_TextureReplacer && m_ReplacedLabel)
+  {
+    m_ReplacedLabel->setVisible(m_TextureReplacer->IsReplaced(current.resourceId));
+  }
 
   status = QString();
 
@@ -3099,6 +3187,12 @@ void TextureViewer::refreshTextureList(FilterType filterType, const QString &fil
 
 void TextureViewer::OnCaptureClosed()
 {
+  if(m_TextureReplacer)
+    m_TextureReplacer->OnCaptureClosed();
+
+  if(m_ReplacedLabel)
+    m_ReplacedLabel->setVisible(false);
+
   Reset();
 
   refreshTextureList();

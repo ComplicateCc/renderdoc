@@ -712,6 +712,14 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<IStatisticsViewer *>(&ICaptureContext::GetStatisticsViewer);
   }
+  virtual ITAStatsPanel *GetTAStatsPanel() override
+  {
+    return InvokeRetFunction<ITAStatsPanel *>(&ICaptureContext::GetTAStatsPanel);
+  }
+  virtual ICBufferEditor *GetCBufferEditor() override
+  {
+    return InvokeRetFunction<ICBufferEditor *>(&ICaptureContext::GetCBufferEditor);
+  }
   virtual ITimelineBar *GetTimelineBar() override
   {
     return InvokeRetFunction<ITimelineBar *>(&ICaptureContext::GetTimelineBar);
@@ -772,6 +780,14 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasStatisticsViewer);
   }
+  virtual bool HasTAStatsPanel() override
+  {
+    return InvokeRetFunction<bool>(&ICaptureContext::HasTAStatsPanel);
+  }
+  virtual bool HasCBufferEditor() override
+  {
+    return InvokeRetFunction<bool>(&ICaptureContext::HasCBufferEditor);
+  }
   virtual bool HasTimelineBar() override
   {
     return InvokeRetFunction<bool>(&ICaptureContext::HasTimelineBar);
@@ -826,6 +842,14 @@ struct CaptureContextInvoker : ObjectForwarder<ICaptureContext>
   virtual void ShowStatisticsViewer() override
   {
     InvokeVoidFunction(&ICaptureContext::ShowStatisticsViewer);
+  }
+  virtual void ShowTAStatsPanel() override
+  {
+    InvokeVoidFunction(&ICaptureContext::ShowTAStatsPanel);
+  }
+  virtual void ShowCBufferEditor() override
+  {
+    InvokeVoidFunction(&ICaptureContext::ShowCBufferEditor);
   }
   virtual void ShowTimelineBar() override { InvokeVoidFunction(&ICaptureContext::ShowTimelineBar); }
   virtual void ShowPythonShell() override { InvokeVoidFunction(&ICaptureContext::ShowPythonShell); }

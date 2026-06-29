@@ -154,6 +154,17 @@ public:
 
   ResourceId GetResourceID() { return m_ID; }
   NestedType *GetReal() { return m_pReal; }
+  // Swap the underlying real resource pointer. Updates the wrapper map in ResourceManager.
+  // Returns the old real pointer (caller must Release it).
+  NestedType *SwapReal(NestedType *newReal)
+  {
+    NestedType *oldReal = m_pReal;
+    // Update the wrapper map: remove old mapping, add new one
+    m_pDevice->GetResourceManager()->RemoveWrapper(oldReal);
+    m_pDevice->GetResourceManager()->AddWrapper(this, newReal);
+    m_pReal = newReal;
+    return oldReal;
+  }
   // internal addref/release
   void IntAddRef() { Atomic::Inc32(&m_IntRef); }
   void IntRelease()

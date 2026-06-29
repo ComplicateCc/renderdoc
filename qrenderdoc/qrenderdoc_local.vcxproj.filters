@@ -156,6 +156,9 @@
     <ClCompile Include="Windows\Dialogs\CaptureDialog.cpp">
       <Filter>Windows\Dialogs</Filter>
     </ClCompile>
+    <ClCompile Include="Code\TextureReplacer.cpp">
+      <Filter>Code</Filter>
+    </ClCompile>
     <ClCompile Include="Code\QRDUtils.cpp">
       <Filter>Code</Filter>
     </ClCompile>
@@ -384,6 +387,12 @@
     <ClCompile Include="Windows\StatisticsViewer.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
+    <ClCompile Include="Windows\TAStatsPanel.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
+    <ClCompile Include="Windows\CBufferEditor.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
     <ClCompile Include="Windows\Dialogs\RemoteManager.cpp">
       <Filter>Windows\Dialogs</Filter>
     </ClCompile>
@@ -520,6 +529,12 @@
       <Filter>Generated Files</Filter>
     </ClCompile>
     <ClCompile Include="$(IntDir)generated\moc_StatisticsViewer.cpp">
+      <Filter>Generated Files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(IntDir)generated\moc_TAStatsPanel.cpp">
+      <Filter>Generated Files</Filter>
+    </ClCompile>
+    <ClCompile Include="$(IntDir)generated\moc_CBufferEditor.cpp">
       <Filter>Generated Files</Filter>
     </ClCompile>
     <ClCompile Include="$(IntDir)generated\moc_SuggestRemoteDialog.cpp">
@@ -1055,6 +1070,12 @@
     <ClInclude Include="$(IntDir)generated\ui_StatisticsViewer.h">
       <Filter>Generated Files</Filter>
     </ClInclude>
+    <ClInclude Include="$(IntDir)generated\ui_TAStatsPanel.h">
+      <Filter>Generated Files</Filter>
+    </ClInclude>
+    <ClInclude Include="$(IntDir)generated\ui_CBufferEditor.h">
+      <Filter>Generated Files</Filter>
+    </ClInclude>
     <ClInclude Include="$(IntDir)generated\ui_SuggestRemoteDialog.h">
       <Filter>Generated Files</Filter>
     </ClInclude>
@@ -1238,6 +1259,12 @@
     <CustomBuild Include="Windows\StatisticsViewer.ui">
       <Filter>Windows</Filter>
     </CustomBuild>
+    <CustomBuild Include="Windows\TAStatsPanel.ui">
+      <Filter>Windows</Filter>
+    </CustomBuild>
+    <CustomBuild Include="Windows\CBufferEditor.ui">
+      <Filter>Windows</Filter>
+    </CustomBuild>
     <CustomBuild Include="Windows\TextureViewer.ui">
       <Filter>Windows</Filter>
     </CustomBuild>
@@ -1323,6 +1350,12 @@
       <Filter>Windows</Filter>
     </CustomBuild>
     <CustomBuild Include="Windows\StatisticsViewer.h">
+      <Filter>Windows</Filter>
+    </CustomBuild>
+    <CustomBuild Include="Windows\TAStatsPanel.h">
+      <Filter>Windows</Filter>
+    </CustomBuild>
+    <CustomBuild Include="Windows\CBufferEditor.h">
       <Filter>Windows</Filter>
     </CustomBuild>
     <CustomBuild Include="Widgets\Extended\RDDoubleSpinBox.h">
