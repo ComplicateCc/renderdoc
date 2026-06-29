@@ -34,8 +34,9 @@ You also agree by submitting your code that you grant all transferrable rights t
 4. [Developing a change](CONTRIBUTING/Developing-Change.md)
 5. [Testing](CONTRIBUTING/Testing.md)
 6. [Code Explanation](CONTRIBUTING/Code-Explanation.md)
-7. [Filing issues](CONTRIBUTING/Filing-Issues.md)
-8. [Asking Questions](CONTRIBUTING/Questions.md)
+7. [Texture replacement notes](CONTRIBUTING/Texture-Replacement-Notes.md)
+8. [Filing issues](CONTRIBUTING/Filing-Issues.md)
+9. [Asking Questions](CONTRIBUTING/Questions.md)
 
 ## Quick Start
 
