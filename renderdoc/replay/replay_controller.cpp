@@ -41,6 +41,131 @@
 #include "strings/string_utils.h"
 #include "tinyexr/tinyexr.h"
 
+struct ReplacementImage
+{
+  rdcarray<byte> pixels;
+  uint32_t width = 0;
+  uint32_t height = 0;
+};
+
+static bool IsTextureReplacementFormatSupported(const ResourceFormat &format)
+{
+  if(format.BlockFormat())
+    return false;
+
+  if(format.type != ResourceFormatType::Regular && format.type != ResourceFormatType::R10G10B10A2 &&
+     format.type != ResourceFormatType::R11G11B10 && format.type != ResourceFormatType::R5G6B5 &&
+     format.type != ResourceFormatType::R5G5B5A1 && format.type != ResourceFormatType::R9G9B9E5 &&
+     format.type != ResourceFormatType::R4G4B4A4 && format.type != ResourceFormatType::R4G4 &&
+     format.type != ResourceFormatType::A8)
+    return false;
+
+  return format.compType == CompType::UNorm || format.compType == CompType::UNormSRGB ||
+         format.compType == CompType::SNorm || format.compType == CompType::UInt ||
+         format.compType == CompType::SInt || format.compType == CompType::UScaled ||
+         format.compType == CompType::SScaled || format.compType == CompType::Float;
+}
+
+static ReplacementImage LoadTextureReplacementImage(const TextureReplacement &replacement)
+{
+  ReplacementImage image;
+
+  if(replacement.type == TextureReplacementType::File)
+  {
+    int width = 0, height = 0, channels = 0;
+    stbi_uc *loaded = stbi_load(replacement.path.c_str(), &width, &height, &channels, 4);
+
+    if(loaded == NULL)
+      return image;
+
+    if(width > 0 && height > 0)
+    {
+      image.width = (uint32_t)width;
+      image.height = (uint32_t)height;
+      image.pixels.resize(size_t(image.width) * size_t(image.height) * 4);
+      memcpy(image.pixels.data(), loaded, image.pixels.size());
+    }
+
+    stbi_image_free(loaded);
+  }
+  else
+  {
+    image.width = image.height = 64;
+    image.pixels.resize(size_t(image.width) * size_t(image.height) * 4);
+
+    for(uint32_t y = 0; y < image.height; y++)
+    {
+      for(uint32_t x = 0; x < image.width; x++)
+      {
+        byte value = 0;
+        if(replacement.type == TextureReplacementType::White)
+          value = 255;
+        else if(replacement.type == TextureReplacementType::Grey)
+          value = 128;
+        else if(replacement.type == TextureReplacementType::Checkerboard)
+          value = (((x / 8) + (y / 8)) & 1) ? 255 : 0;
+
+        byte *pixel = image.pixels.data() + (size_t(y) * image.width + x) * 4;
+        pixel[0] = pixel[1] = pixel[2] = value;
+        pixel[3] = 255;
+      }
+    }
+  }
+
+  return image;
+}
+
+static rdcarray<byte> ResizeRGBA8(const rdcarray<byte> &source, uint32_t sourceWidth,
+                                  uint32_t sourceHeight, uint32_t destWidth, uint32_t destHeight)
+{
+  rdcarray<byte> dest;
+  dest.resize(size_t(destWidth) * size_t(destHeight) * 4);
+
+  if(sourceWidth == destWidth && sourceHeight == destHeight)
+  {
+    memcpy(dest.data(), source.data(), dest.size());
+    return dest;
+  }
+
+  for(uint32_t y = 0; y < destHeight; y++)
+  {
+    const uint32_t sourceY = RDCMIN(sourceHeight - 1, uint32_t((uint64_t)y * sourceHeight / destHeight));
+    for(uint32_t x = 0; x < destWidth; x++)
+    {
+      const uint32_t sourceX = RDCMIN(sourceWidth - 1, uint32_t((uint64_t)x * sourceWidth / destWidth));
+      memcpy(dest.data() + (size_t(y) * destWidth + x) * 4,
+             source.data() + (size_t(sourceY) * sourceWidth + sourceX) * 4, 4);
+    }
+  }
+
+  return dest;
+}
+
+static rdcarray<byte> EncodeTextureReplacementMip(const rdcarray<byte> &rgba, uint32_t width,
+                                                  uint32_t height, const ResourceFormat &format)
+{
+  rdcarray<byte> encoded;
+  const uint32_t elementSize = format.ElementSize();
+  encoded.resize(size_t(width) * size_t(height) * elementSize);
+
+  for(uint32_t y = 0; y < height; y++)
+  {
+    for(uint32_t x = 0; x < width; x++)
+    {
+      const byte *src = rgba.data() + (size_t(y) * width + x) * 4;
+      FloatVector value(float(src[0]) / 255.0f, float(src[1]) / 255.0f, float(src[2]) / 255.0f,
+                        float(src[3]) / 255.0f);
+      bool success = false;
+      EncodeFormattedComponents(format, value, encoded.data() + (size_t(y) * width + x) * elementSize,
+                                &success);
+      if(!success)
+        return rdcarray<byte>();
+    }
+  }
+
+  return encoded;
+}
+
 static void fileWriteFunc(void *context, void *data, int size)
 {
   FileIO::fwrite(data, 1, size, (FILE *)context);
@@ -1946,6 +2071,7 @@ void ReplayController::Shutdown()
     m_pDevice->FreeTargetResource(*it);
 
   m_TargetResources.clear();
+  m_TextureReplacementResources.clear();
 
   if(m_pDevice)
     m_pDevice->Shutdown();
@@ -2144,12 +2270,117 @@ void ReplayController::ReplaceResource(ResourceId from, ResourceId to)
       m_Outputs[i]->Display();
 }
 
+ResultDetails ReplayController::ReplaceTexture(const TextureReplacement &replacement)
+{
+  CHECK_REPLAY_THREAD();
+
+  RENDERDOC_PROFILEFUNCTION();
+
+  const TextureDescription *original = NULL;
+  for(const TextureDescription &texture : m_Textures)
+  {
+    if(texture.resourceId == replacement.resourceId)
+    {
+      original = &texture;
+      break;
+    }
+  }
+
+  if(original == NULL)
+    RETURN_ERROR_RESULT(ResultCode::InvalidParameter, "Invalid texture id for replacement");
+
+  if(original->msSamp > 1 || original->dimension != 2 || original->type == TextureType::Buffer ||
+     original->type == TextureType::Texture3D || original->depth > 1)
+    RETURN_ERROR_RESULT(ResultCode::ImageUnsupported,
+                        "Texture replacement currently supports non-MSAA 1D/2D textures only");
+
+  if(!IsTextureReplacementFormatSupported(original->format))
+    RETURN_ERROR_RESULT(ResultCode::ImageUnsupported,
+                        "Texture replacement does not support format %s", original->format.Name().c_str());
+
+  ReplacementImage source = LoadTextureReplacementImage(replacement);
+  if(source.pixels.empty())
+  {
+    if(replacement.type == TextureReplacementType::File)
+      RETURN_ERROR_RESULT(ResultCode::FileIOFailed, "Failed to load replacement image %s",
+                          replacement.path.c_str());
+    RETURN_ERROR_RESULT(ResultCode::InternalError, "Failed to create built-in replacement image");
+  }
+
+  if(!replacement.resize && (source.width != original->width || source.height != original->height))
+    RETURN_ERROR_RESULT(ResultCode::InvalidParameter,
+                        "Replacement image is %ux%u but texture is %ux%u", source.width,
+                        source.height, original->width, original->height);
+
+  TextureDescription proxyTemplate = *original;
+  ResourceId proxyId = m_pDevice->CreateProxyTexture(proxyTemplate);
+  FatalErrorCheck();
+
+  if(proxyId == ResourceId())
+    RETURN_ERROR_RESULT(ResultCode::APIUnsupported, "Replay driver could not create a proxy texture");
+
+  m_TargetResources.insert(proxyId);
+
+  const uint32_t mipCount = replacement.generateMips ? RDCMAX(1U, original->mips) : 1U;
+  for(uint32_t mip = 0; mip < mipCount; mip++)
+  {
+    const uint32_t mipWidth = RDCMAX(1U, original->width >> mip);
+    const uint32_t mipHeight = RDCMAX(1U, original->height >> mip);
+    rdcarray<byte> rgba = ResizeRGBA8(source.pixels, source.width, source.height, mipWidth, mipHeight);
+    rdcarray<byte> encoded = EncodeTextureReplacementMip(rgba, mipWidth, mipHeight, original->format);
+
+    if(encoded.empty())
+    {
+      m_TargetResources.erase(proxyId);
+      m_pDevice->FreeTargetResource(proxyId);
+      RETURN_ERROR_RESULT(ResultCode::ImageUnsupported,
+                          "Failed to encode replacement pixels as %s", original->format.Name().c_str());
+    }
+
+    const uint32_t slices = RDCMAX(1U, original->arraysize);
+    for(uint32_t slice = 0; slice < slices; slice++)
+      m_pDevice->SetProxyTextureData(proxyId, Subresource(mip, slice, 0), encoded.data(), encoded.size());
+  }
+
+  auto previousReplacement = m_TextureReplacementResources.find(replacement.resourceId);
+  ResourceId previousProxy = previousReplacement == m_TextureReplacementResources.end()
+                               ? ResourceId()
+                               : previousReplacement->second;
+
+  m_pDevice->ReplaceResource(replacement.resourceId, proxyId);
+  FatalErrorCheck();
+
+  m_TextureReplacementResources[replacement.resourceId] = proxyId;
+
+  if(previousProxy != ResourceId())
+  {
+    m_TargetResources.erase(previousProxy);
+    m_pDevice->FreeTargetResource(previousProxy);
+  }
+
+  SetFrameEvent(m_EventID, true);
+
+  for(size_t i = 0; i < m_Outputs.size(); i++)
+    if(m_Outputs[i]->GetType() != ReplayOutputType::Headless)
+      m_Outputs[i]->Display();
+
+  return {ResultCode::Succeeded};
+}
+
 void ReplayController::RemoveReplacement(ResourceId id)
 {
   CHECK_REPLAY_THREAD();
 
   m_pDevice->RemoveReplacement(id);
   FatalErrorCheck();
+
+  auto replacement = m_TextureReplacementResources.find(id);
+  if(replacement != m_TextureReplacementResources.end())
+  {
+    m_TargetResources.erase(replacement->second);
+    m_pDevice->FreeTargetResource(replacement->second);
+    m_TextureReplacementResources.erase(replacement);
+  }
 
   SetFrameEvent(m_EventID, true);
 

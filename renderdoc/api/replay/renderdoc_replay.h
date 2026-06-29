@@ -722,6 +722,18 @@ See :meth:`BuildTargetShader`, :meth:`RemoveReplacement`.
 )");
   virtual void ReplaceResource(ResourceId original, ResourceId replacement) = 0;
 
+  DOCUMENT(R"(Create a replay-time texture replacement from an image file or built-in debug texture.
+
+This creates a proxy texture matching the target texture where possible, uploads replacement data,
+and calls :meth:`ReplaceResource`. It is intended for live preview and does not modify the capture
+file on disk.
+
+:param TextureReplacement replacement: The texture replacement configuration.
+:return: The result of the operation.
+:rtype: ResultDetails
+)" );
+  virtual ResultDetails ReplaceTexture(const TextureReplacement &replacement) = 0;
+
   DOCUMENT(R"(Clear any cached data from previous replays and ensure subsequent replays fully
 re-initialise any data, including e.g. bindless feedback, printf results or mesh output data.
 )");

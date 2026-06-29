@@ -834,6 +834,90 @@ It is an :class:`AlphaMapping` that controls what behaviour to use.
 
 DECLARE_REFLECTION_STRUCT(TextureSave);
 
+DOCUMENT(R"(The source image to use when replacing a texture.
+
+.. data:: File
+
+  Load the replacement image from :data:`path`.
+
+.. data:: Black
+
+  Use an all-black debug texture.
+
+.. data:: White
+
+  Use an all-white debug texture.
+
+.. data:: Grey
+
+  Use a 50% grey debug texture.
+
+.. data:: Checkerboard
+
+  Use a black and white checkerboard debug texture.
+)" );
+enum class TextureReplacementType : uint32_t
+{
+  File,
+  First = File,
+  Black,
+  White,
+  Grey,
+  Checkerboard,
+  Count,
+};
+
+ITERABLE_OPERATORS(TextureReplacementType);
+DECLARE_REFLECTION_ENUM(TextureReplacementType);
+
+DOCUMENT("Describes how to replace a texture for replay-time preview.");
+struct TextureReplacement
+{
+  DOCUMENT("");
+  TextureReplacement() = default;
+  TextureReplacement(const TextureReplacement &) = default;
+  TextureReplacement &operator=(const TextureReplacement &) = default;
+
+  DOCUMENT(R"(The :class:`ResourceId` of the captured texture to replace.
+
+:type: ResourceId
+)" );
+  ResourceId resourceId;
+
+  DOCUMENT(R"(The source of replacement texture data.
+
+:type: TextureReplacementType
+)" );
+  TextureReplacementType type = TextureReplacementType::File;
+
+  DOCUMENT(R"(Path to an image file when :data:`type` is :data:`TextureReplacementType.File`.
+
+Supported file types are those handled by stb_image, including PNG and TGA.
+
+:type: str
+)" );
+  rdcstr path;
+
+  DOCUMENT(R"(If ``True``, resize the source image to match the target texture dimensions.
+
+If ``False``, the source image dimensions must match the target texture dimensions.
+
+:type: bool
+)" );
+  bool resize = true;
+
+  DOCUMENT(R"(If ``True``, generate data for each mip in the target texture.
+
+If ``False``, only mip 0 is replaced. Textures with mip filters may still sample their original
+lower mips.
+
+:type: bool
+)" );
+  bool generateMips = true;
+};
+
+DECLARE_REFLECTION_STRUCT(TextureReplacement);
+
 DOCUMENT("A range of sized descriptors.");
 struct DescriptorRange
 {

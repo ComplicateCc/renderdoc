@@ -2326,6 +2326,70 @@ void TextureViewer::texContextItem_triggered()
   }
 }
 
+void TextureViewer::texContextReplaceFile_triggered()
+{
+  QAction *act = qobject_cast<QAction *>(QObject::sender());
+  ResourceId id = act->property("id").value<ResourceId>();
+
+  QString filename = RDDialog::getOpenFileName(
+      this, tr("Select replacement texture"), QString(),
+      tr("Images (*.png *.tga *.jpg *.jpeg *.bmp *.psd *.gif *.hdr);;All Files (*)"));
+
+  if(filename.isEmpty())
+    return;
+
+  TextureReplacement replacement;
+  replacement.resourceId = id;
+  replacement.type = TextureReplacementType::File;
+  replacement.path = filename;
+  replacement.resize = true;
+  replacement.generateMips = true;
+
+  ResultDetails result = {ResultCode::Succeeded};
+  m_Ctx.Replay().BlockInvoke(
+      [&replacement, &result](IReplayController *r) { result = r->ReplaceTexture(replacement); });
+
+  if(result.code != ResultCode::Succeeded)
+    RDDialog::critical(this, tr("Texture replacement failed"), result.Message());
+  else
+    m_TextureReplacements[id] = true;
+
+  OnEventChanged(m_Ctx.CurEvent());
+}
+
+void TextureViewer::texContextReplaceBuiltin_triggered()
+{
+  QAction *act = qobject_cast<QAction *>(QObject::sender());
+  ResourceId id = act->property("id").value<ResourceId>();
+
+  TextureReplacement replacement;
+  replacement.resourceId = id;
+  replacement.type = (TextureReplacementType)act->property("replacementType").toUInt();
+  replacement.resize = true;
+  replacement.generateMips = true;
+
+  ResultDetails result = {ResultCode::Succeeded};
+  m_Ctx.Replay().BlockInvoke(
+      [&replacement, &result](IReplayController *r) { result = r->ReplaceTexture(replacement); });
+
+  if(result.code != ResultCode::Succeeded)
+    RDDialog::critical(this, tr("Texture replacement failed"), result.Message());
+  else
+    m_TextureReplacements[id] = true;
+
+  OnEventChanged(m_Ctx.CurEvent());
+}
+
+void TextureViewer::texContextRemoveReplacement_triggered()
+{
+  QAction *act = qobject_cast<QAction *>(QObject::sender());
+  ResourceId id = act->property("id").value<ResourceId>();
+
+  m_Ctx.Replay().BlockInvoke([id](IReplayController *r) { r->RemoveReplacement(id); });
+  m_TextureReplacements.remove(id);
+  OnEventChanged(m_Ctx.CurEvent());
+}
+
 void TextureViewer::AddResourceUsageEntry(QMenu &menu, uint32_t start, uint32_t end,
                                           ResourceUsage usage)
 {
@@ -2355,6 +2419,8 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
 
   QAction openLockedTab(tr("Open new Locked Tab"), this);
   QAction openResourceInspector(tr("Open in Resource Inspector"), this);
+  QAction replaceFromFile(tr("Replace texture from file..."), this);
+  QAction removeReplacement(tr("Remove texture replacement"), this);
   QAction usageTitle(tr("Used:"), this);
   QAction imageLayout(this);
 
@@ -2373,6 +2439,24 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
     contextMenu.addAction(&openLockedTab);
     contextMenu.addAction(&openResourceInspector);
 
+    QMenu replaceMenu(tr("Replace texture"), this);
+    QAction replaceBlack(tr("Black"), this);
+    QAction replaceWhite(tr("White"), this);
+    QAction replaceGrey(tr("Grey"), this);
+    QAction replaceCheckerboard(tr("Checkerboard"), this);
+
+    replaceMenu.addAction(&replaceFromFile);
+    replaceMenu.addSeparator();
+    replaceMenu.addAction(&replaceBlack);
+    replaceMenu.addAction(&replaceWhite);
+    replaceMenu.addAction(&replaceGrey);
+    replaceMenu.addAction(&replaceCheckerboard);
+
+    contextMenu.addMenu(&replaceMenu);
+
+    if(m_TextureReplacements.contains(id))
+      contextMenu.addAction(&removeReplacement);
+
     contextMenu.addSeparator();
     m_Ctx.Extensions().MenuDisplaying(input ? ContextMenu::TextureViewer_InputThumbnail
                                             : ContextMenu::TextureViewer_OutputThumbnail,
@@ -2382,9 +2466,33 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
     contextMenu.addAction(&usageTitle);
 
     openLockedTab.setProperty("id", QVariant::fromValue(id));
+    replaceFromFile.setProperty("id", QVariant::fromValue(id));
+    removeReplacement.setProperty("id", QVariant::fromValue(id));
+    replaceBlack.setProperty("id", QVariant::fromValue(id));
+    replaceWhite.setProperty("id", QVariant::fromValue(id));
+    replaceGrey.setProperty("id", QVariant::fromValue(id));
+    replaceCheckerboard.setProperty("id", QVariant::fromValue(id));
+    replaceBlack.setProperty("replacementType", QVariant((uint)TextureReplacementType::Black));
+    replaceWhite.setProperty("replacementType", QVariant((uint)TextureReplacementType::White));
+    replaceGrey.setProperty("replacementType", QVariant((uint)TextureReplacementType::Grey));
+    replaceCheckerboard.setProperty("replacementType",
+                                    QVariant((uint)TextureReplacementType::Checkerboard));
 
     QObject::connect(&openLockedTab, &QAction::triggered, this,
                      &TextureViewer::texContextItem_triggered);
+
+    QObject::connect(&replaceFromFile, &QAction::triggered, this,
+                     &TextureViewer::texContextReplaceFile_triggered);
+    QObject::connect(&removeReplacement, &QAction::triggered, this,
+                     &TextureViewer::texContextRemoveReplacement_triggered);
+    QObject::connect(&replaceBlack, &QAction::triggered, this,
+                     &TextureViewer::texContextReplaceBuiltin_triggered);
+    QObject::connect(&replaceWhite, &QAction::triggered, this,
+                     &TextureViewer::texContextReplaceBuiltin_triggered);
+    QObject::connect(&replaceGrey, &QAction::triggered, this,
+                     &TextureViewer::texContextReplaceBuiltin_triggered);
+    QObject::connect(&replaceCheckerboard, &QAction::triggered, this,
+                     &TextureViewer::texContextReplaceBuiltin_triggered);
 
     QObject::connect(&openResourceInspector, &QAction::triggered, [this, id]() {
       m_Ctx.ShowResourceInspector();
@@ -3109,6 +3217,7 @@ void TextureViewer::OnCaptureClosed()
   RemoveTextureTabs(0);
 
   m_LockedTabs.clear();
+  m_TextureReplacements.clear();
 
   ui->customShader->clear();
   m_CustomShaders.clear();

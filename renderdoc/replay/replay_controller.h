@@ -176,6 +176,7 @@ public:
                                                 const ShaderCompileFlags &compileFlags,
                                                 ShaderStage type);
   void ReplaceResource(ResourceId from, ResourceId to);
+  ResultDetails ReplaceTexture(const TextureReplacement &replacement);
   void RemoveReplacement(ResourceId id);
   void FreeTargetResource(ResourceId id);
   void ClearReplayCache();
@@ -297,6 +298,7 @@ private:
 
   std::set<ResourceId> m_TargetResources;
   std::set<ResourceId> m_CustomShaders;
+  std::map<ResourceId, ResourceId> m_TextureReplacementResources;
 
   friend struct ReplayOutput;
 };

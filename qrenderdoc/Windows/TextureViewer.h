@@ -219,6 +219,9 @@ private slots:
   void thumb_clicked(QMouseEvent *);
   void thumb_doubleClicked(QMouseEvent *);
   void texContextItem_triggered();
+  void texContextReplaceFile_triggered();
+  void texContextReplaceBuiltin_triggered();
+  void texContextRemoveReplacement_triggered();
 
   void zoomOption_returnPressed();
 
@@ -356,6 +359,7 @@ private:
   TextureDescription *m_CachedTexture;
   Following m_Following;
   QMap<ResourceId, TexSettings> m_TextureSettings;
+  QMap<ResourceId, bool> m_TextureReplacements;
 
   friend struct Following;
 
