@@ -66,6 +66,9 @@ private:
   void AppendRasterizationStatistics();
   void AppendOutputStatistics();
   void AppendDetailedInformation();
+  void AppendTAPerformancePreview();
+  void AppendActionPerformanceRows(const rdcarray<ActionDescription> &actions, int depth,
+                                   uint32_t &draws, uint64_t &vertices, uint64_t &primitives);
   void CountContributingEvents(const ActionDescription &action, uint32_t &drawCount,
                                uint32_t &dispatchCount, uint32_t &diagnosticCount);
   void AppendAPICallSummary();

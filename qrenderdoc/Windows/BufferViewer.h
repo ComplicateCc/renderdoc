@@ -172,6 +172,8 @@ private slots:
   void meshDebugSelector_beginDebug(const rdcfixedarray<uint32_t, 3> &group,
                                     const rdcfixedarray<uint32_t, 3> &thread);
   void fixedVars_contextMenu(const QPoint &pos);
+  void editCBufferValue(RDTreeWidgetItem *item);
+  void restoreCBuffer();
 
 private:
   bool eventFilter(QObject *watched, QEvent *event) override;
@@ -218,6 +220,10 @@ private:
                             const rdcarray<ShaderVariable> &vars);
   void UI_RemoveOffsets(RDTreeWidgetItem *root);
   void UI_FixedAddMatrixRows(RDTreeWidgetItem *n, const ShaderConstant &c, const ShaderVariable &v);
+  bool RT_WriteCBufferValue(IReplayController *r, uint32_t relativeOffset, VarType type,
+                            uint32_t components, const QString &text, ResultDetails &result);
+  bool RT_VerifyCBufferValue(IReplayController *r, uint32_t relativeOffset, VarType type,
+                             uint32_t components, const QString &text, ResultDetails &result);
 
   void exportCSV(QTextStream &ts, const QString &prefix, RDTreeWidgetItem *item);
 

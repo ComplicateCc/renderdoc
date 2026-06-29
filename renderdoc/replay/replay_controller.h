@@ -177,6 +177,7 @@ public:
                                                 ShaderStage type);
   void ReplaceResource(ResourceId from, ResourceId to);
   ResultDetails ReplaceTexture(const TextureReplacement &replacement);
+  ResultDetails ReplaceBuffer(ResourceId resourceId, uint64_t byteOffset, const bytebuf &data);
   void RemoveReplacement(ResourceId id);
   void FreeTargetResource(ResourceId id);
   void ClearReplayCache();
@@ -255,6 +256,7 @@ private:
   RDResult PostCreateInit(IReplayDriver *device, RDCFile *rdc);
 
   void FetchPipelineState(uint32_t eventId);
+  void ApplyBufferReplacements();
 
   ActionDescription *GetActionByEID(uint32_t eventId);
   bool ContainsMarker(const rdcarray<ActionDescription> &actions);
@@ -299,6 +301,14 @@ private:
   std::set<ResourceId> m_TargetResources;
   std::set<ResourceId> m_CustomShaders;
   std::map<ResourceId, ResourceId> m_TextureReplacementResources;
+  std::map<ResourceId, ResourceId> m_BufferReplacementResources;
+  struct BufferReplacementRange
+  {
+    uint32_t firstEventId = 0;
+    uint64_t byteOffset = 0;
+    bytebuf data;
+  };
+  std::map<ResourceId, rdcarray<BufferReplacementRange>> m_BufferReplacementData;
 
   friend struct ReplayOutput;
 };

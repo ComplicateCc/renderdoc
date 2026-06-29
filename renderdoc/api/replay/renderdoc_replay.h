@@ -735,6 +735,20 @@ textures are supported by the replay driver.
 )" );
   virtual ResultDetails ReplaceTexture(const TextureReplacement &replacement) = 0;
 
+  DOCUMENT(R"(Create a replay-time buffer replacement from raw bytes.
+
+This creates a proxy buffer matching the target buffer where possible, uploads replacement data,
+and calls :meth:`ReplaceResource`. It is intended for live preview and does not modify the capture
+file on disk.
+
+:param ResourceId resourceId: The buffer to replace.
+:param int byteOffset: Byte offset in the buffer to replace.
+:param bytes data: Replacement bytes for this range.
+:return: The result of the operation.
+:rtype: ResultDetails
+)" );
+  virtual ResultDetails ReplaceBuffer(ResourceId resourceId, uint64_t byteOffset, const bytebuf &data) = 0;
+
   DOCUMENT(R"(Clear any cached data from previous replays and ensure subsequent replays fully
 re-initialise any data, including e.g. bindless feedback, printf results or mesh output data.
 )");

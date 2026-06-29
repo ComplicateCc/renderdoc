@@ -26,11 +26,14 @@
 #include <float.h>
 #include <QDoubleSpinBox>
 #include <QFontDatabase>
+#include <QInputDialog>
 #include <QItemSelection>
 #include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QMutexLocker>
 #include <QPushButton>
+#include <QRegExp>
 #include <QScrollBar>
 #include <QSplitter>
 #include <QTimer>
@@ -58,6 +61,8 @@ struct FixedVarTag
   bool padding = false;
   bool matrix = false;
   bool rowmajor = false;
+  VarType type = VarType::Unknown;
+  uint32_t components = 1;
   rdcstr name;
   union
   {
@@ -65,6 +70,33 @@ struct FixedVarTag
     uint32_t byteSize;
   };
 };
+
+static void SetFixedVarTagType(RDTreeWidgetItem *item, VarType type, uint32_t components = 1)
+{
+  FixedVarTag tag = item->tag().value<FixedVarTag>();
+  tag.type = type;
+  tag.components = components;
+  item->setTag(QVariant::fromValue(tag));
+}
+
+static bool IsEditableCBufferType(VarType type)
+{
+  return type == VarType::Float || type == VarType::Double || type == VarType::SInt ||
+         type == VarType::UInt || type == VarType::Bool;
+}
+
+static void SetCBufferError(ResultDetails &result, ResultCode code, const rdcstr &message)
+{
+  result.code = code;
+  result.internal_msg = &message;
+}
+
+static const rdcstr CBufferReadError = "Could not read buffer contents";
+static const rdcstr CBufferBoundsError = "Edited value would write outside the buffer";
+static const rdcstr CBufferParseError = "Could not parse replacement value";
+static const rdcstr CBufferTypeError = "This CBuffer value type is not editable";
+static const rdcstr CBufferVerifyError = "Replacement was written but readback did not match";
+static rdcstr CBufferDynamicError;
 
 Q_DECLARE_METATYPE(FixedVarTag);
 
@@ -3017,6 +3049,8 @@ void BufferViewer::fixedVars_contextMenu(const QPoint &pos)
   QAction expandAll(tr("&Expand All"), this);
   QAction collapseAll(tr("C&ollapse All"), this);
   QAction copy(tr("&Copy"), this);
+  QAction editValue(tr("&Edit CBuffer Value..."), this);
+  QAction restoreCBuffer(tr("&Restore CBuffer"), this);
   QAction showPadding(tr("&Show Padding"), this);
   QAction removeFilter(tr("&Remove Filter"), this);
   QAction filterTask(tr("&Filter to this Task"), this);
@@ -3025,6 +3059,8 @@ void BufferViewer::fixedVars_contextMenu(const QPoint &pos)
   expandAll.setIcon(Icons::arrow_out());
   collapseAll.setIcon(Icons::arrow_in());
   copy.setIcon(Icons::copy());
+  editValue.setIcon(Icons::page_white_edit());
+  restoreCBuffer.setIcon(Icons::arrow_undo());
   removeFilter.setIcon(Icons::arrow_undo());
   filterTask.setIcon(Icons::filter());
   gotoMesh.setIcon(Icons::arrow_join());
@@ -3036,10 +3072,22 @@ void BufferViewer::fixedVars_contextMenu(const QPoint &pos)
   filterTask.setEnabled(item);
   gotoMesh.setEnabled(item);
   collapseAll.setEnabled(expandAll.isEnabled());
+  FixedVarTag itemTag = item ? item->tag().value<FixedVarTag>() : FixedVarTag();
+  editValue.setEnabled(IsCBufferView() && m_CurCBuffer.bytesBacked && itemTag.valid &&
+                       !itemTag.padding && !itemTag.matrix && IsEditableCBufferType(itemTag.type) &&
+                       !m_CurCBuffer.compileConstants);
+  restoreCBuffer.setEnabled(IsCBufferView() && m_CurCBuffer.bytesBacked &&
+                            !m_CurCBuffer.compileConstants);
 
   contextMenu.addAction(&expandAll);
   contextMenu.addAction(&collapseAll);
   contextMenu.addAction(&copy);
+
+  if(IsCBufferView())
+  {
+    contextMenu.addAction(&editValue);
+    contextMenu.addAction(&restoreCBuffer);
+  }
 
   contextMenu.addSeparator();
 
@@ -3109,6 +3157,8 @@ void BufferViewer::fixedVars_contextMenu(const QPoint &pos)
                    [this, item]() { ui->fixedVars->collapseAllItems(item); });
   QObject::connect(&copy, &QAction::triggered,
                    [this, item, pos]() { ui->fixedVars->copyItem(pos, item); });
+  QObject::connect(&editValue, &QAction::triggered, [this, item]() { editCBufferValue(item); });
+  QObject::connect(&restoreCBuffer, &QAction::triggered, [this]() { this->restoreCBuffer(); });
   QObject::connect(&showPadding, &QAction::triggered,
                    [this]() { ui->showPadding->setChecked(!ui->showPadding->isChecked()); });
 
@@ -4139,8 +4189,18 @@ void BufferViewer::UI_FixedAddMatrixRows(RDTreeWidgetItem *n, const ShaderConsta
 
     for(uint32_t r = 0; r < v.rows; r++)
     {
-      n->addChild(new RDTreeWidgetItem({QFormatStr("%1.row%2").arg(v.name).arg(r), RowString(v, r),
-                                        QString(), RowTypeString(v)}));
+      RDTreeWidgetItem *row = new RDTreeWidgetItem({QFormatStr("%1.row%2").arg(v.name).arg(r),
+                                                    RowString(v, r), QString(), RowTypeString(v)});
+      FixedVarTag rowTag = n->tag().value<FixedVarTag>();
+      rowTag.matrix = false;
+      rowTag.rowmajor = v.RowMajor();
+      rowTag.type = VarType::Unknown;
+      rowTag.components = v.columns;
+      uint32_t stride = c.type.matrixByteStride;
+      uint32_t elemSize = VarTypeByteSize(v.type);
+      rowTag.byteOffset += v.RowMajor() ? r * stride : r * elemSize;
+      row->setTag(QVariant::fromValue(rowTag));
+      n->addChild(row);
 
       if(showPadding && v.RowMajor() && c.type.matrixByteStride > vecSize)
       {
@@ -4333,6 +4393,7 @@ void BufferViewer::UI_AddFixedVariables(RDTreeWidgetItem *root, uint32_t baseOff
     }
 
     n->setTag(QVariant::fromValue(FixedVarTag(v.name, baseOffset + c.byteOffset)));
+    SetFixedVarTagType(n, v.type, v.columns);
 
     root->addChild(n);
 
@@ -4361,6 +4422,7 @@ void BufferViewer::UI_AddFixedVariables(RDTreeWidgetItem *root, uint32_t baseOff
         });
 
         el->setTag(QVariant::fromValue(FixedVarTag(v.members[e].name, elOffset)));
+        SetFixedVarTagType(el, v.members[e].type, v.members[e].columns);
 
         // if it's an array of structs we can recurse, just need to do the outer iteration here
         // because v.members[...].members will be the actual struct members because of the expansion
@@ -4419,6 +4481,257 @@ void BufferViewer::UI_RemoveOffsets(RDTreeWidgetItem *root)
     item->setText(2, QVariant());
     UI_RemoveOffsets(item);
   }
+}
+
+template <typename T>
+static bool ParseValues(rdcarray<T> &out, uint32_t components, const QString &text,
+                        std::function<bool(const QString &, T &)> parse)
+{
+  QStringList values = text.split(QRegExp(lit("[,\\s]+")), QString::SkipEmptyParts);
+  if(values.size() != (int)components)
+    return false;
+
+  out.resize(components);
+  for(uint32_t i = 0; i < components; i++)
+  {
+    T value = T();
+    if(!parse(values[(int)i], value))
+      return false;
+    out[i] = value;
+  }
+
+  return true;
+}
+
+template <typename T>
+static bool ParseAndWriteValues(byte *dst, uint32_t components, const QString &text,
+                                std::function<bool(const QString &, T &)> parse)
+{
+  rdcarray<T> values;
+  if(!ParseValues<T>(values, components, text, parse))
+    return false;
+
+  memcpy(dst, values.data(), sizeof(T) * values.size());
+  return true;
+}
+
+template <typename T>
+static bool ParseAndCompareValues(const byte *src, uint32_t components, const QString &text,
+                                  std::function<bool(const QString &, T &)> parse)
+{
+  rdcarray<T> values;
+  if(!ParseValues<T>(values, components, text, parse))
+    return false;
+
+  return memcmp(src, values.data(), sizeof(T) * values.size()) == 0;
+}
+
+bool BufferViewer::RT_WriteCBufferValue(IReplayController *r, uint32_t relativeOffset, VarType type,
+                                        uint32_t components, const QString &text,
+                                        ResultDetails &result)
+{
+  bytebuf bufferData = r->GetBufferData(m_BufferID, 0, 0);
+  if(bufferData.empty())
+  {
+    SetCBufferError(result, ResultCode::InternalError, CBufferReadError);
+    return false;
+  }
+
+  uint64_t absoluteOffset = m_ByteOffset + relativeOffset;
+  uint32_t elemSize = VarTypeByteSize(type);
+  if(!IsEditableCBufferType(type) || components == 0 || components > 4)
+  {
+    SetCBufferError(result, ResultCode::InvalidParameter, CBufferTypeError);
+    return false;
+  }
+
+  if(elemSize == 0 || absoluteOffset + elemSize * components > bufferData.size())
+  {
+    SetCBufferError(result, ResultCode::InvalidParameter, CBufferBoundsError);
+    return false;
+  }
+
+  bytebuf patchData;
+  patchData.resize(elemSize * components);
+  bool ok = false;
+
+  switch(type)
+  {
+    case VarType::Float:
+      ok = ParseAndWriteValues<float>(patchData.data(), components, text, [](const QString &s, float &v) {
+        bool parsed = false;
+        v = s.toFloat(&parsed);
+        return parsed;
+      });
+      break;
+    case VarType::Double:
+      ok = ParseAndWriteValues<double>(patchData.data(), components, text, [](const QString &s, double &v) {
+        bool parsed = false;
+        v = s.toDouble(&parsed);
+        return parsed;
+      });
+      break;
+    case VarType::SInt:
+      ok = ParseAndWriteValues<int32_t>(patchData.data(), components, text, [](const QString &s, int32_t &v) {
+        bool parsed = false;
+        v = s.toInt(&parsed, 0);
+        return parsed;
+      });
+      break;
+    case VarType::UInt:
+      ok = ParseAndWriteValues<uint32_t>(patchData.data(), components, text, [](const QString &s, uint32_t &v) {
+        bool parsed = false;
+        v = s.toUInt(&parsed, 0);
+        return parsed;
+      });
+      break;
+    case VarType::Bool:
+      ok = ParseAndWriteValues<uint32_t>(patchData.data(), components, text, [](const QString &s, uint32_t &v) {
+        QString lower = s.trimmed().toLower();
+        if(lower == lit("true"))
+        {
+          v = 1;
+          return true;
+        }
+        if(lower == lit("false"))
+        {
+          v = 0;
+          return true;
+        }
+        bool parsed = false;
+        v = s.toUInt(&parsed, 0) ? 1 : 0;
+        return parsed;
+      });
+      break;
+    default: ok = false; break;
+  }
+
+  if(!ok)
+  {
+    SetCBufferError(result, ResultCode::InvalidParameter, CBufferParseError);
+    return false;
+  }
+
+  result = r->ReplaceBuffer(m_BufferID, absoluteOffset, patchData);
+  return result.OK();
+}
+
+bool BufferViewer::RT_VerifyCBufferValue(IReplayController *r, uint32_t relativeOffset, VarType type,
+                                         uint32_t components, const QString &text,
+                                         ResultDetails &result)
+{
+  bytebuf bufferData = r->GetBufferData(m_BufferID, 0, 0);
+  uint64_t absoluteOffset = m_ByteOffset + relativeOffset;
+  uint32_t elemSize = VarTypeByteSize(type);
+  if(bufferData.empty() || elemSize == 0 || absoluteOffset + elemSize * components > bufferData.size())
+  {
+    SetCBufferError(result, ResultCode::InternalError, CBufferReadError);
+    return false;
+  }
+
+  const byte *src = bufferData.data() + absoluteOffset;
+  bool ok = false;
+
+  switch(type)
+  {
+    case VarType::Float:
+      ok = ParseAndCompareValues<float>(src, components, text, [](const QString &s, float &v) {
+        bool parsed = false;
+        v = s.toFloat(&parsed);
+        return parsed;
+      });
+      break;
+    case VarType::Double:
+      ok = ParseAndCompareValues<double>(src, components, text, [](const QString &s, double &v) {
+        bool parsed = false;
+        v = s.toDouble(&parsed);
+        return parsed;
+      });
+      break;
+    case VarType::SInt:
+      ok = ParseAndCompareValues<int32_t>(src, components, text, [](const QString &s, int32_t &v) {
+        bool parsed = false;
+        v = s.toInt(&parsed, 0);
+        return parsed;
+      });
+      break;
+    case VarType::UInt:
+      ok = ParseAndCompareValues<uint32_t>(src, components, text, [](const QString &s, uint32_t &v) {
+        bool parsed = false;
+        v = s.toUInt(&parsed, 0);
+        return parsed;
+      });
+      break;
+    case VarType::Bool:
+      ok = ParseAndCompareValues<uint32_t>(src, components, text, [](const QString &s, uint32_t &v) {
+        QString lower = s.trimmed().toLower();
+        if(lower == lit("true"))
+        {
+          v = 1;
+          return true;
+        }
+        if(lower == lit("false"))
+        {
+          v = 0;
+          return true;
+        }
+        bool parsed = false;
+        v = s.toUInt(&parsed, 0) ? 1 : 0;
+        return parsed;
+      });
+      break;
+    default: break;
+  }
+
+  if(!ok)
+  {
+    CBufferDynamicError = QFormatStr("%1 (buffer %2, offset %3, size %4, type %5, components %6)")
+                              .arg(QString::fromUtf8(CBufferVerifyError.c_str()))
+                              .arg(ToQStr(m_BufferID))
+                              .arg(absoluteOffset)
+                              .arg(elemSize * components)
+                              .arg(ToQStr(type))
+                              .arg(components);
+    SetCBufferError(result, ResultCode::InternalError, CBufferDynamicError);
+    return false;
+  }
+
+  result = ResultCode::Succeeded;
+  return true;
+}
+
+void BufferViewer::editCBufferValue(RDTreeWidgetItem *item)
+{
+  if(!item)
+    return;
+
+  FixedVarTag tag = item->tag().value<FixedVarTag>();
+  bool accepted = false;
+  QString text = QInputDialog::getText(this, tr("Edit CBuffer Value"),
+                                       tr("Enter replacement value(s). Use commas or spaces for vectors."),
+                                       QLineEdit::Normal, item->text(1), &accepted);
+  if(!accepted)
+    return;
+
+  ResultDetails result;
+  m_Ctx.Replay().BlockInvoke([this, tag, text, &result](IReplayController *r) {
+    if(RT_WriteCBufferValue(r, tag.byteOffset, tag.type, tag.components, text, result))
+      RT_VerifyCBufferValue(r, tag.byteOffset, tag.type, tag.components, text, result);
+  });
+
+  if(!result.OK())
+  {
+    RDDialog::critical(this, tr("CBuffer Edit Failed"), result.Message());
+    return;
+  }
+
+  m_Ctx.RefreshStatus();
+}
+
+void BufferViewer::restoreCBuffer()
+{
+  m_Ctx.Replay().BlockInvoke([this](IReplayController *r) { r->RemoveReplacement(m_BufferID); });
+  m_Ctx.RefreshStatus();
 }
 
 void BufferViewer::calcBoundingData(CalcBoundingBoxData &bbox)

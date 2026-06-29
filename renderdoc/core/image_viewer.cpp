@@ -372,6 +372,10 @@ public:
     errors = "Building target shaders is unsupported";
   }
   void ReplaceResource(ResourceId from, ResourceId to) {}
+  ResultDetails ReplaceBuffer(ResourceId resourceId, uint64_t byteOffset, const bytebuf &data)
+  {
+    RETURN_ERROR_RESULT(ResultCode::APIUnsupported, "Buffer replacement is unsupported");
+  }
   void ClearReplayCache() {}
   void ReloadShaderDebugInformation() {}
   void RemoveReplacement(ResourceId id) {}

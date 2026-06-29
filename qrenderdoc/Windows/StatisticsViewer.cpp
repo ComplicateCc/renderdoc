@@ -615,6 +615,72 @@ void StatisticsViewer::AppendDetailedInformation()
   AppendOutputStatistics();
 }
 
+void StatisticsViewer::AppendActionPerformanceRows(const rdcarray<ActionDescription> &actions,
+                                                   int depth, uint32_t &draws, uint64_t &vertices,
+                                                   uint64_t &primitives)
+{
+  for(const ActionDescription &action : actions)
+  {
+    uint32_t localDraws = 0;
+    uint64_t localVertices = 0;
+    uint64_t localPrimitives = 0;
+
+    if(action.flags & (ActionFlags::Drawcall | ActionFlags::MeshDispatch))
+    {
+      localDraws = 1;
+      localVertices = (uint64_t)action.numIndices * qMax(1U, action.numInstances);
+      localPrimitives = localVertices / 3;
+    }
+
+    uint32_t childDraws = 0;
+    uint64_t childVertices = 0;
+    uint64_t childPrimitives = 0;
+    AppendActionPerformanceRows(action.children, depth + 1, childDraws, childVertices, childPrimitives);
+
+    uint32_t totalDraws = localDraws + childDraws;
+    uint64_t totalVertices = localVertices + childVertices;
+    uint64_t totalPrimitives = localPrimitives + childPrimitives;
+
+    if(totalDraws > 0 || (action.flags & (ActionFlags::SetMarker | ActionFlags::PushMarker)))
+    {
+      QString name = action.GetName(m_Ctx.GetStructuredFile());
+      if(name.isEmpty())
+        name = tr("Event %1").arg(action.eventId);
+
+      QString indent(depth * 2, QLatin1Char(' '));
+      m_Report.append(QFormatStr("%1- EID %2  %3  draws=%4  verts=%5  tris~=%6\n")
+                          .arg(indent)
+                          .arg(action.eventId, 5)
+                          .arg(name)
+                          .arg(totalDraws)
+                          .arg(totalVertices)
+                          .arg(totalPrimitives));
+    }
+
+    draws += totalDraws;
+    vertices += totalVertices;
+    primitives += totalPrimitives;
+  }
+}
+
+void StatisticsViewer::AppendTAPerformancePreview()
+{
+  m_Report.append(tr("\n*** TA Performance Preview ***\n\n"));
+  m_Report.append(tr("Hierarchical pass/draw overview. Triangle counts are estimated from "
+                     "draw vertex/index counts because topology is not stored per action.\n\n"));
+
+  uint32_t draws = 0;
+  uint64_t vertices = 0;
+  uint64_t primitives = 0;
+  AppendActionPerformanceRows(m_Ctx.CurRootActions(), 0, draws, vertices, primitives);
+
+  m_Report.append(tr("\nPreview totals: draw-like actions=%1, submitted vertices/indices=%2, "
+                     "estimated triangles=%3\n")
+                      .arg(draws)
+                      .arg(vertices)
+                      .arg(primitives));
+}
+
 void StatisticsViewer::CountContributingEvents(const ActionDescription &action, uint32_t &drawCount,
                                                uint32_t &dispatchCount, uint32_t &diagnosticCount)
 {
@@ -803,6 +869,8 @@ void StatisticsViewer::GenerateReport()
   m_Report.append(textures);
   m_Report.append(buffers);
   m_Report.append(load);
+
+  AppendTAPerformancePreview();
 
   AppendDetailedInformation();
 }

@@ -255,6 +255,30 @@ ReplayController::~ReplayController()
   CHECK_REPLAY_THREAD();
 }
 
+void ReplayController::ApplyBufferReplacements()
+{
+  for(const auto &replacement : m_BufferReplacementData)
+  {
+    bytebuf liveData;
+    m_pDevice->GetBufferData(replacement.first, 0, 0, liveData);
+    for(const BufferReplacementRange &range : replacement.second)
+    {
+      if(m_EventID < range.firstEventId)
+        continue;
+
+      if(range.byteOffset >= liveData.size())
+        continue;
+
+      size_t writable = RDCMIN((size_t)range.data.size(), (size_t)(liveData.size() - range.byteOffset));
+      memcpy(liveData.data() + range.byteOffset, range.data.data(), writable);
+    }
+
+    m_pDevice->SetProxyBufferData(replacement.first, liveData.data(), liveData.size());
+  }
+
+  FatalErrorCheck();
+}
+
 void ReplayController::SetFrameEvent(uint32_t eventId, bool force)
 {
   CHECK_REPLAY_THREAD();
@@ -271,12 +295,14 @@ void ReplayController::SetFrameEvent(uint32_t eventId, bool force)
 
     m_pDevice->ReplayLog(eventId, eReplay_WithoutDraw);
     FatalErrorCheck();
+    ApplyBufferReplacements();
 
     for(size_t i = 0; i < m_Outputs.size(); i++)
       m_Outputs[i]->SetFrameEvent(eventId);
 
     m_pDevice->ReplayLog(eventId, eReplay_OnlyDraw);
     FatalErrorCheck();
+    ApplyBufferReplacements();
 
     FetchPipelineState(eventId);
   }
@@ -2139,6 +2165,8 @@ void ReplayController::Shutdown()
 
   m_TargetResources.clear();
   m_TextureReplacementResources.clear();
+  m_BufferReplacementResources.clear();
+  m_BufferReplacementData.clear();
 
   if(m_pDevice)
     m_pDevice->Shutdown();
@@ -2437,6 +2465,65 @@ ResultDetails ReplayController::ReplaceTexture(const TextureReplacement &replace
   return {ResultCode::Succeeded};
 }
 
+ResultDetails ReplayController::ReplaceBuffer(ResourceId resourceId, uint64_t byteOffset,
+                                              const bytebuf &data)
+{
+  CHECK_REPLAY_THREAD();
+
+  const BufferDescription *original = NULL;
+  for(const BufferDescription &buffer : m_Buffers)
+  {
+    if(buffer.resourceId == resourceId)
+    {
+      original = &buffer;
+      break;
+    }
+  }
+
+  if(original == NULL)
+    RETURN_ERROR_RESULT(ResultCode::InvalidParameter, "Invalid buffer id for replacement");
+
+  if(data.empty())
+    RETURN_ERROR_RESULT(ResultCode::InvalidParameter, "Replacement range is empty");
+
+  if(byteOffset >= original->length || byteOffset + data.size() > original->length)
+    RETURN_ERROR_RESULT(ResultCode::InvalidParameter,
+                        "Replacement range %llu+%zu is outside buffer length %llu", byteOffset,
+                        data.size(), original->length);
+
+  BufferReplacementRange range;
+  range.firstEventId = m_EventID;
+  range.byteOffset = byteOffset;
+  range.data = data;
+
+  rdcarray<BufferReplacementRange> &ranges = m_BufferReplacementData[resourceId];
+  bool replacedExisting = false;
+  for(BufferReplacementRange &existing : ranges)
+  {
+    if(existing.firstEventId == range.firstEventId && existing.byteOffset == range.byteOffset &&
+       existing.data.size() == range.data.size())
+    {
+      existing.data = range.data;
+      replacedExisting = true;
+      break;
+    }
+  }
+
+  if(!replacedExisting)
+    ranges.push_back(range);
+
+  SetFrameEvent(m_EventID, true);
+
+  for(size_t i = 0; i < m_Outputs.size(); i++)
+  {
+    m_Outputs[i]->ClearThumbnails();
+    if(m_Outputs[i]->GetType() != ReplayOutputType::Headless)
+      m_Outputs[i]->Display();
+  }
+
+  return {ResultCode::Succeeded};
+}
+
 void ReplayController::RemoveReplacement(ResourceId id)
 {
   CHECK_REPLAY_THREAD();
@@ -2451,6 +2538,15 @@ void ReplayController::RemoveReplacement(ResourceId id)
     m_pDevice->FreeTargetResource(replacement->second);
     m_TextureReplacementResources.erase(replacement);
   }
+
+  auto bufferReplacement = m_BufferReplacementResources.find(id);
+  if(bufferReplacement != m_BufferReplacementResources.end())
+  {
+    m_TargetResources.erase(bufferReplacement->second);
+    m_pDevice->FreeTargetResource(bufferReplacement->second);
+    m_BufferReplacementResources.erase(bufferReplacement);
+  }
+  m_BufferReplacementData.erase(id);
 
   SetFrameEvent(m_EventID, true);
 

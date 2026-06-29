@@ -471,19 +471,19 @@ BufferDescription D3D11Replay::GetBuffer(ResourceId id)
   BufferDescription ret = {};
   ret.resourceId = ResourceId();
 
-  auto it = WrappedID3D11Buffer::m_BufferList.find(id);
+  ID3D11DeviceChild *resource = m_pDevice->GetResourceManager()->GetResource(id);
 
-  if(it == WrappedID3D11Buffer::m_BufferList.end())
+  if(resource == NULL || !WrappedID3D11Buffer::IsAlloc(resource))
     return ret;
 
-  WrappedID3D11Buffer *d3dbuf = it->second.m_Buffer;
+  WrappedID3D11Buffer *d3dbuf = (WrappedID3D11Buffer *)resource;
 
   rdcstr str = GetDebugName(d3dbuf);
 
-  ret.resourceId = it->first;
+  ret.resourceId = id;
 
   D3D11_BUFFER_DESC desc;
-  it->second.m_Buffer->GetDesc(&desc);
+  d3dbuf->GetDesc(&desc);
 
   ret.length = desc.ByteWidth;
 
@@ -492,6 +492,8 @@ BufferDescription D3D11Replay::GetBuffer(ResourceId id)
     ret.creationFlags |= BufferCategory::Vertex;
   if(desc.BindFlags & D3D11_BIND_INDEX_BUFFER)
     ret.creationFlags |= BufferCategory::Index;
+  if(desc.BindFlags & D3D11_BIND_CONSTANT_BUFFER)
+    ret.creationFlags |= BufferCategory::Constants;
   if(desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS)
     ret.creationFlags |= BufferCategory::ReadWrite;
   if(desc.MiscFlags & D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS)
@@ -2134,15 +2136,15 @@ void D3D11Replay::GetBufferData(ResourceId buff, uint64_t offset, uint64_t lengt
     return;
   }
 
-  auto it = WrappedID3D11Buffer::m_BufferList.find(buff);
+  ID3D11DeviceChild *resource = m_pDevice->GetResourceManager()->GetResource(buff);
 
-  if(it == WrappedID3D11Buffer::m_BufferList.end())
+  if(resource == NULL || !WrappedID3D11Buffer::IsAlloc(resource))
   {
     RDCERR("Getting buffer data for unknown buffer %s!", ToStr(buff).c_str());
     return;
   }
 
-  ID3D11Buffer *buffer = it->second.m_Buffer;
+  ID3D11Buffer *buffer = (WrappedID3D11Buffer *)resource;
 
   RDCASSERT(buffer);
 
@@ -4069,15 +4071,25 @@ ResourceId D3D11Replay::CreateProxyBuffer(const BufferDescription &templateBuf)
 
   {
     ID3D11Buffer *throwaway = NULL;
-    D3D11_BUFFER_DESC desc;
-
-    // D3D11_BIND_CONSTANT_BUFFER size must be 16-byte aligned.
-    desc.ByteWidth = AlignUp16((UINT)templateBuf.length);
-    desc.CPUAccessFlags = 0;
-    desc.MiscFlags = 0;
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_INDEX_BUFFER;
-    desc.StructureByteStride = 0;
+    D3D11_BUFFER_DESC desc = {};
+    ID3D11DeviceChild *sourceResource =
+        m_pDevice->GetResourceManager()->GetResource(templateBuf.resourceId, true);
+    if(sourceResource && WrappedID3D11Buffer::IsAlloc(sourceResource))
+    {
+      ((WrappedID3D11Buffer *)sourceResource)->GetDesc(&desc);
+      desc.CPUAccessFlags = 0;
+      desc.Usage = D3D11_USAGE_DEFAULT;
+      desc.ByteWidth = AlignUp16((UINT)templateBuf.length);
+    }
+    else
+    {
+      desc.ByteWidth = AlignUp16((UINT)templateBuf.length);
+      desc.CPUAccessFlags = 0;
+      desc.MiscFlags = 0;
+      desc.Usage = D3D11_USAGE_DEFAULT;
+      desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+      desc.StructureByteStride = 0;
+    }
 
     HRESULT hr = m_pDevice->CreateBuffer(&desc, NULL, &throwaway);
     if(FAILED(hr))
@@ -4117,7 +4129,34 @@ void D3D11Replay::SetProxyBufferData(ResourceId bufid, byte *data, size_t dataSi
       return;
     }
 
-    ctx->UpdateSubresource(buf->GetReal(), 0, NULL, data, (UINT)dataSize, (UINT)dataSize);
+    if(desc.Usage == D3D11_USAGE_DYNAMIC && (desc.CPUAccessFlags & D3D11_CPU_ACCESS_WRITE))
+    {
+      D3D11_MAPPED_SUBRESOURCE mapped = {};
+      HRESULT hr = ctx->Map(buf->GetReal(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+      if(FAILED(hr))
+      {
+        RDCERR("Failed to map dynamic proxy buffer for SetProxyBufferData: %s", ToStr(hr).c_str());
+        return;
+      }
+
+      memcpy(mapped.pData, data, dataSize);
+      if(dataSize < desc.ByteWidth)
+        memset((byte *)mapped.pData + dataSize, 0, desc.ByteWidth - dataSize);
+
+      ctx->Unmap(buf->GetReal(), 0);
+    }
+    else if(dataSize == desc.ByteWidth)
+    {
+      ctx->UpdateSubresource(buf->GetReal(), 0, NULL, data, (UINT)dataSize, (UINT)dataSize);
+    }
+    else
+    {
+      bytebuf alignedData;
+      alignedData.resize(desc.ByteWidth);
+      memcpy(alignedData.data(), data, dataSize);
+      ctx->UpdateSubresource(buf->GetReal(), 0, NULL, alignedData.data(), desc.ByteWidth,
+                             desc.ByteWidth);
+    }
   }
   else
   {
