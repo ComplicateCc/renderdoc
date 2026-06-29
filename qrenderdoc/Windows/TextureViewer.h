@@ -192,6 +192,7 @@ private slots:
   void on_resourceDetails_clicked();
   void on_texListShow_clicked();
   void on_saveTex_clicked();
+  void on_replaceTex_clicked();
   void on_debugPixelContext_clicked();
   void on_pixelHistory_clicked();
 
@@ -219,6 +220,9 @@ private slots:
   void thumb_clicked(QMouseEvent *);
   void thumb_doubleClicked(QMouseEvent *);
   void texContextItem_triggered();
+  void replaceCurrentTextureFile();
+  void replaceCurrentTextureBuiltin(TextureReplacementType type);
+  void removeCurrentTextureReplacement();
   void texContextReplaceFile_triggered();
   void texContextReplaceBuiltin_triggered();
   void texContextRemoveReplacement_triggered();

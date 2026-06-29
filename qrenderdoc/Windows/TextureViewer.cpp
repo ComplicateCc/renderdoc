@@ -543,6 +543,42 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
     });
   }
 
+  {
+    QMenu *replaceMenu = new QMenu(this);
+
+    QAction *fromFile = replaceMenu->addAction(tr("From file..."));
+    replaceMenu->addSeparator();
+    QAction *black = replaceMenu->addAction(tr("Black"));
+    QAction *white = replaceMenu->addAction(tr("White"));
+    QAction *grey = replaceMenu->addAction(tr("Grey"));
+    QAction *checkerboard = replaceMenu->addAction(tr("Checkerboard"));
+    replaceMenu->addSeparator();
+    QAction *remove = replaceMenu->addAction(tr("Remove replacement"));
+
+    ui->replaceTex->setMenu(replaceMenu);
+
+    QObject::connect(fromFile, &QAction::triggered, this, &TextureViewer::replaceCurrentTextureFile);
+    QObject::connect(black, &QAction::triggered, [this]() {
+      replaceCurrentTextureBuiltin(TextureReplacementType::Black);
+    });
+    QObject::connect(white, &QAction::triggered, [this]() {
+      replaceCurrentTextureBuiltin(TextureReplacementType::White);
+    });
+    QObject::connect(grey, &QAction::triggered, [this]() {
+      replaceCurrentTextureBuiltin(TextureReplacementType::Grey);
+    });
+    QObject::connect(checkerboard, &QAction::triggered, [this]() {
+      replaceCurrentTextureBuiltin(TextureReplacementType::Checkerboard);
+    });
+    QObject::connect(remove, &QAction::triggered, this,
+                     &TextureViewer::removeCurrentTextureReplacement);
+
+    QObject::connect(replaceMenu, &QMenu::aboutToShow, [this, remove]() {
+      ResourceId id = GetCurrentResource();
+      remove->setEnabled(id != ResourceId() && m_TextureReplacements.contains(id));
+    });
+  }
+
   QObject::connect(ui->textureList, &RDTreeWidget::itemActivated, this,
                    &TextureViewer::texture_itemActivated);
 
@@ -1222,7 +1258,10 @@ void TextureViewer::UI_UpdateTextureDetails()
     ui->renderContainer->setWindowTitle(title);
   }
 
-  ui->texStatusName->setText(m_Ctx.GetResourceName(current.resourceId) + lit(" - "));
+  QString resourceName = m_Ctx.GetResourceName(current.resourceId);
+  if(m_TextureReplacements.contains(current.resourceId))
+    resourceName += tr(" (Replaced)");
+  ui->texStatusName->setText(resourceName + lit(" - "));
 
   status = QString();
 
@@ -2331,6 +2370,16 @@ void TextureViewer::texContextReplaceFile_triggered()
   QAction *act = qobject_cast<QAction *>(QObject::sender());
   ResourceId id = act->property("id").value<ResourceId>();
 
+  ViewTexture(id, CompType::Typeless, false);
+  replaceCurrentTextureFile();
+}
+
+void TextureViewer::replaceCurrentTextureFile()
+{
+  ResourceId id = GetCurrentResource();
+  if(id == ResourceId())
+    return;
+
   QString filename = RDDialog::getOpenFileName(
       this, tr("Select replacement texture"), QString(),
       tr("Images (*.png *.tga *.jpg *.jpeg *.bmp *.psd *.gif *.hdr);;All Files (*)"));
@@ -2362,9 +2411,19 @@ void TextureViewer::texContextReplaceBuiltin_triggered()
   QAction *act = qobject_cast<QAction *>(QObject::sender());
   ResourceId id = act->property("id").value<ResourceId>();
 
+  ViewTexture(id, CompType::Typeless, false);
+  replaceCurrentTextureBuiltin((TextureReplacementType)act->property("replacementType").toUInt());
+}
+
+void TextureViewer::replaceCurrentTextureBuiltin(TextureReplacementType type)
+{
+  ResourceId id = GetCurrentResource();
+  if(id == ResourceId())
+    return;
+
   TextureReplacement replacement;
   replacement.resourceId = id;
-  replacement.type = (TextureReplacementType)act->property("replacementType").toUInt();
+  replacement.type = type;
   replacement.resize = true;
   replacement.generateMips = true;
 
@@ -2384,6 +2443,16 @@ void TextureViewer::texContextRemoveReplacement_triggered()
 {
   QAction *act = qobject_cast<QAction *>(QObject::sender());
   ResourceId id = act->property("id").value<ResourceId>();
+
+  ViewTexture(id, CompType::Typeless, false);
+  removeCurrentTextureReplacement();
+}
+
+void TextureViewer::removeCurrentTextureReplacement()
+{
+  ResourceId id = GetCurrentResource();
+  if(id == ResourceId())
+    return;
 
   m_Ctx.Replay().BlockInvoke([id](IReplayController *r) { r->RemoveReplacement(id); });
   m_TextureReplacements.remove(id);
@@ -3038,6 +3107,7 @@ void TextureViewer::OnCaptureLoaded()
   ui->saveTex->setEnabled(true);
   ui->locationGoto->setEnabled(true);
   ui->viewTexBuffer->setEnabled(true);
+  ui->replaceTex->setEnabled(true);
 
   ui->pixelHistory->setEnabled(false);
   ui->pixelHistory->setToolTip(QString());
@@ -3102,6 +3172,7 @@ void TextureViewer::Reset()
   ui->pixelHistory->setToolTip(QString());
   ui->debugPixelContext->setEnabled(false);
   ui->debugPixelContext->setToolTip(QString());
+  ui->replaceTex->setEnabled(false);
 
   ui->texStatusName->setText(QString());
   ui->texStatusDim->setText(QString());
@@ -3225,6 +3296,7 @@ void TextureViewer::OnCaptureClosed()
   ui->saveTex->setEnabled(false);
   ui->locationGoto->setEnabled(false);
   ui->viewTexBuffer->setEnabled(false);
+  ui->replaceTex->setEnabled(false);
 
   UI_UpdateChannels();
 }
@@ -4205,6 +4277,11 @@ void TextureViewer::on_saveTex_clicked()
                          tr("Error saving texture %1:\n\n%2").arg(fn).arg(result.Message()));
     }
   }
+}
+
+void TextureViewer::on_replaceTex_clicked()
+{
+  replaceCurrentTextureFile();
 }
 
 void TextureViewer::on_debugPixelContext_clicked()

@@ -475,6 +475,22 @@
      </widget>
     </item>
     <item>
+     <widget class="QToolButton" name="replaceTex">
+      <property name="toolTip">
+       <string>Replace selected texture for live preview</string>
+      </property>
+      <property name="text">
+       <string>Replace...</string>
+      </property>
+      <property name="autoRaise">
+       <bool>true</bool>
+      </property>
+      <property name="popupMode">
+       <enum>QToolButton::InstantPopup</enum>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="QToolButton" name="texListShow">
       <property name="toolTip">
        <string>Open Texture List</string>
