@@ -2095,6 +2095,17 @@ void TextureViewer::UI_CreateThumbnails()
     UI_CreateThumbnail(ui->inputThumbs);
 }
 
+void TextureViewer::UI_RefreshThumbnails()
+{
+  for(ResourcePreview *prev : ui->outputThumbs->thumbs())
+    if(prev->isActive())
+      UI_PreviewResized(prev);
+
+  for(ResourcePreview *prev : ui->inputThumbs->thumbs())
+    if(prev->isActive())
+      UI_PreviewResized(prev);
+}
+
 void TextureViewer::ViewTexture(ResourceId ID, CompType typeCast, bool focus)
 {
   if(QThread::currentThread() != QCoreApplication::instance()->thread())
@@ -2401,9 +2412,11 @@ void TextureViewer::replaceCurrentTextureFile()
   if(result.code != ResultCode::Succeeded)
     RDDialog::critical(this, tr("Texture replacement failed"), result.Message());
   else
+  {
     m_TextureReplacements[id] = true;
-
-  OnEventChanged(m_Ctx.CurEvent());
+    OnEventChanged(m_Ctx.CurEvent());
+    UI_RefreshThumbnails();
+  }
 }
 
 void TextureViewer::texContextReplaceBuiltin_triggered()
@@ -2434,9 +2447,11 @@ void TextureViewer::replaceCurrentTextureBuiltin(TextureReplacementType type)
   if(result.code != ResultCode::Succeeded)
     RDDialog::critical(this, tr("Texture replacement failed"), result.Message());
   else
+  {
     m_TextureReplacements[id] = true;
-
-  OnEventChanged(m_Ctx.CurEvent());
+    OnEventChanged(m_Ctx.CurEvent());
+    UI_RefreshThumbnails();
+  }
 }
 
 void TextureViewer::texContextRemoveReplacement_triggered()
@@ -2457,6 +2472,7 @@ void TextureViewer::removeCurrentTextureReplacement()
   m_Ctx.Replay().BlockInvoke([id](IReplayController *r) { r->RemoveReplacement(id); });
   m_TextureReplacements.remove(id);
   OnEventChanged(m_Ctx.CurEvent());
+  UI_RefreshThumbnails();
 }
 
 void TextureViewer::AddResourceUsageEntry(QMenu &menu, uint32_t start, uint32_t end,

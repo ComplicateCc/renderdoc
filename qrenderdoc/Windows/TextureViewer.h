@@ -275,6 +275,7 @@ private:
 
   ResourcePreview *UI_CreateThumbnail(ThumbnailStrip *strip);
   void UI_CreateThumbnails();
+  void UI_RefreshThumbnails();
   void InitResourcePreview(ResourcePreview *prev, Descriptor res, bool force, Following &follow,
                            const QString &bindName, const QString &slotName);
 
