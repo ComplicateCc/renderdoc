@@ -59,6 +59,7 @@
 #include "Windows/ShaderMessageViewer.h"
 #include "Windows/ShaderViewer.h"
 #include "Windows/StatisticsViewer.h"
+#include "Windows/TAPerformanceViewer.h"
 #include "Windows/TextureViewer.h"
 #include "Windows/TimelineBar.h"
 #include "MiniQtHelper.h"
@@ -2396,6 +2397,18 @@ IStatisticsViewer *CaptureContext::GetStatisticsViewer()
   return m_StatisticsViewer;
 }
 
+TAPerformanceViewer *CaptureContext::GetTAPerformanceViewer()
+{
+  if(m_TAPerformanceViewer)
+    return m_TAPerformanceViewer;
+
+  m_TAPerformanceViewer = new TAPerformanceViewer(*this, m_MainWindow);
+  m_TAPerformanceViewer->setObjectName(lit("taPerformanceViewer"));
+  setupDockWindow(m_TAPerformanceViewer, true);
+
+  return m_TAPerformanceViewer;
+}
+
 ITimelineBar *CaptureContext::GetTimelineBar()
 {
   if(m_TimelineBar)
@@ -2749,6 +2762,10 @@ QWidget *CaptureContext::CreateBuiltinWindow(const rdcstr &objectName)
   {
     return GetPerformanceCounterViewer()->Widget();
   }
+  else if(objectName == "taPerformanceViewer")
+  {
+    return GetTAPerformanceViewer()->Widget();
+  }
 
   return NULL;
 }
@@ -2783,6 +2800,8 @@ void CaptureContext::BuiltinWindowClosed(QWidget *window)
     m_ResourceInspector = NULL;
   else if(m_PerformanceCounterViewer && m_PerformanceCounterViewer->Widget() == window)
     m_PerformanceCounterViewer = NULL;
+  else if(m_TAPerformanceViewer && m_TAPerformanceViewer->Widget() == window)
+    m_TAPerformanceViewer = NULL;
   else
     qCritical() << "Unrecognised window being closed: " << window;
 }

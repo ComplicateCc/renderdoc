@@ -230,6 +230,7 @@ SOURCES += Code/qrenderdoc.cpp \
     Windows/LogView.cpp \
     Windows/CommentView.cpp \
     Windows/StatisticsViewer.cpp \
+    Windows/TAPerformanceViewer.cpp \
     Windows/TimelineBar.cpp \
     Windows/Dialogs/SettingsDialog.cpp \
     Widgets/OrderedListEditor.cpp \
@@ -319,6 +320,7 @@ HEADERS += Code/CaptureContext.h \
     Windows/LogView.h \
     Windows/CommentView.h \
     Windows/StatisticsViewer.h \
+    Windows/TAPerformanceViewer.h \
     Windows/TimelineBar.h \
     Windows/Dialogs/SettingsDialog.h \
     Widgets/OrderedListEditor.h \

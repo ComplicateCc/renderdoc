@@ -2633,6 +2633,16 @@ void MainWindow::on_action_Statistics_Viewer_triggered()
     ui->toolWindowManager->addToolWindow(stats, mainToolArea());
 }
 
+void MainWindow::on_action_TA_Performance_Viewer_triggered()
+{
+  QWidget *viewer = m_Ctx.CreateBuiltinWindow(lit("taPerformanceViewer"));
+
+  if(ui->toolWindowManager->toolWindows().contains(viewer))
+    ToolWindowManager::raiseToolWindow(viewer);
+  else
+    ui->toolWindowManager->addToolWindow(viewer, mainToolArea());
+}
+
 void MainWindow::on_action_Timeline_triggered()
 {
   QWidget *stats = m_Ctx.GetTimelineBar()->Widget();

@@ -62,3 +62,9 @@ CBuffer 调试功能相关复盘见：
 ```text
 docs/ta_renderdoc_cbuffer_development_retrospective.md
 ```
+
+TA Performance Viewer 使用说明见：
+
+```text
+docs/ta_performance_viewer.md
+```

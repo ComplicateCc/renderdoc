@@ -669,6 +669,9 @@
     <ClCompile Include="Windows\PerformanceCounterViewer.cpp">
       <Filter>Windows</Filter>
     </ClCompile>
+    <ClCompile Include="Windows\TAPerformanceViewer.cpp">
+      <Filter>Windows</Filter>
+    </ClCompile>
     <ClCompile Include="$(IntDir)generated\moc_PerformanceCounterSelection.cpp">
       <Filter>Generated Files</Filter>
     </ClCompile>
@@ -1105,6 +1108,9 @@
     </ClInclude>
     <ClInclude Include="$(IntDir)generated\ui_PerformanceCounterViewer.h">
       <Filter>Generated Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Windows\TAPerformanceViewer.h">
+      <Filter>Windows</Filter>
     </ClInclude>
     <ClInclude Include="Code\pyrenderdoc\container_handling.h">
       <Filter>Code\pyrenderdoc</Filter>

@@ -138,6 +138,7 @@ public:
   void showDiagnosticLogView();
   void showCommentView() { on_action_Comments_triggered(); }
   void showStatisticsViewer() { on_action_Statistics_Viewer_triggered(); }
+  void showTAPerformanceViewer() { on_action_TA_Performance_Viewer_triggered(); }
   void showTimelineBar() { on_action_Timeline_triggered(); }
   void showPythonShell() { on_action_Python_Shell_triggered(); }
   void showPerformanceCounterViewer() { on_action_Counter_Viewer_triggered(); }
@@ -165,6 +166,7 @@ private slots:
   void on_action_Errors_and_Warnings_triggered();
   void on_action_Comments_triggered();
   void on_action_Statistics_Viewer_triggered();
+  void on_action_TA_Performance_Viewer_triggered();
   void on_action_Timeline_triggered();
   void on_action_Python_Shell_triggered();
   void on_action_Inject_into_Process_triggered();

@@ -795,6 +795,7 @@
     <ClCompile Include="Windows\PixelHistoryView.cpp" />
     <ClCompile Include="Windows\PerformanceCounterViewer.cpp" />
     <ClCompile Include="Windows\StatisticsViewer.cpp" />
+    <ClCompile Include="Windows\TAPerformanceViewer.cpp" />
     <ClCompile Include="Windows\TimelineBar.cpp" />
     <ClCompile Include="Windows\TextureViewer.cpp" />
     <ClCompile Include="3rdparty\toolwindowmanager\ToolWindowManager.cpp">
@@ -997,6 +998,7 @@
     <ClInclude Include="$(IntDir)generated\ui_PixelHistoryView.h" />
     <ClInclude Include="$(IntDir)generated\ui_PerformanceCounterViewer.h" />
     <ClInclude Include="$(IntDir)generated\ui_StatisticsViewer.h" />
+    <ClInclude Include="Windows\TAPerformanceViewer.h" />
     <ClInclude Include="$(IntDir)generated\ui_SuggestRemoteDialog.h" />
     <ClInclude Include="$(IntDir)generated\ui_TextureSaveDialog.h" />
     <ClInclude Include="$(IntDir)generated\ui_TipsDialog.h" />
