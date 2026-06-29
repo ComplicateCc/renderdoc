@@ -28,6 +28,7 @@
 #include <time.h>
 #include <unordered_set>
 #include "common/dds_readwrite.h"
+#include "compressonator/CMP_Core.h"
 #include "driver/ihv/amd/amd_isa.h"
 #include "driver/ihv/amd/amd_rgp.h"
 #include "jpeg-compressor/jpgd.h"
@@ -50,6 +51,10 @@ struct ReplacementImage
 
 static bool IsTextureReplacementFormatSupported(const ResourceFormat &format)
 {
+  if(format.type == ResourceFormatType::BC1 || format.type == ResourceFormatType::BC3 ||
+     format.type == ResourceFormatType::BC7 || format.type == ResourceFormatType::ASTC)
+    return format.compType == CompType::UNorm || format.compType == CompType::UNormSRGB;
+
   if(format.BlockFormat())
     return false;
 
@@ -145,6 +150,68 @@ static rdcarray<byte> EncodeTextureReplacementMip(const rdcarray<byte> &rgba, ui
                                                   uint32_t height, const ResourceFormat &format)
 {
   rdcarray<byte> encoded;
+
+  if(format.type == ResourceFormatType::BC1 || format.type == ResourceFormatType::BC3 ||
+     format.type == ResourceFormatType::BC7 || format.type == ResourceFormatType::ASTC)
+  {
+    const uint32_t blockSize = format.type == ResourceFormatType::BC1 ? 8U : 16U;
+    const uint32_t blockWidth = 4;
+    const uint32_t blockHeight = 4;
+    const uint32_t blocksX = RDCMAX(1U, (width + blockWidth - 1) / blockWidth);
+    const uint32_t blocksY = RDCMAX(1U, (height + blockHeight - 1) / blockHeight);
+
+    encoded.resize(size_t(blocksX) * size_t(blocksY) * blockSize);
+
+    byte inblock[4 * 4 * 4];
+
+    for(uint32_t by = 0; by < blocksY; by++)
+    {
+      for(uint32_t bx = 0; bx < blocksX; bx++)
+      {
+        uint32_t rgbaSum[4] = {0, 0, 0, 0};
+
+        for(uint32_t y = 0; y < blockHeight; y++)
+        {
+          const uint32_t srcY = RDCMIN(height - 1, by * blockHeight + y);
+          for(uint32_t x = 0; x < blockWidth; x++)
+          {
+            const uint32_t srcX = RDCMIN(width - 1, bx * blockWidth + x);
+            const byte *src = rgba.data() + (size_t(srcY) * width + srcX) * 4;
+            byte *dst = inblock + (y * blockWidth + x) * 4;
+            memcpy(dst, src, 4);
+            rgbaSum[0] += src[0];
+            rgbaSum[1] += src[1];
+            rgbaSum[2] += src[2];
+            rgbaSum[3] += src[3];
+          }
+        }
+
+        byte *block = encoded.data() + (size_t(by) * blocksX + bx) * blockSize;
+
+        if(format.type == ResourceFormatType::BC1)
+          CompressBlockBC1(inblock, 4 * sizeof(uint32_t), block, NULL);
+        else if(format.type == ResourceFormatType::BC3)
+          CompressBlockBC3(inblock, 4 * sizeof(uint32_t), block, NULL);
+        else if(format.type == ResourceFormatType::BC7)
+          CompressBlockBC7(inblock, 4 * sizeof(uint32_t), block, NULL);
+        else if(format.type == ResourceFormatType::ASTC)
+        {
+          static const byte astcConstBlockPrefix[8] = {0xFC, 0xFD, 0xFF, 0xFF,
+                                                       0xFF, 0xFF, 0xFF, 0xFF};
+          memcpy(block, astcConstBlockPrefix, sizeof(astcConstBlockPrefix));
+          for(uint32_t c = 0; c < 4; c++)
+          {
+            uint16_t unorm = uint16_t((rgbaSum[c] * 65535U + 2040U) / (16U * 255U));
+            block[8 + c * 2] = byte(unorm & 0xff);
+            block[9 + c * 2] = byte(unorm >> 8);
+          }
+        }
+      }
+    }
+
+    return encoded;
+  }
+
   const uint32_t elementSize = format.ElementSize();
   encoded.resize(size_t(width) * size_t(height) * elementSize);
 

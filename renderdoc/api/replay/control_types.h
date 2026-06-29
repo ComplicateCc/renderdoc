@@ -892,7 +892,8 @@ struct TextureReplacement
 
   DOCUMENT(R"(Path to an image file when :data:`type` is :data:`TextureReplacementType.File`.
 
-Supported file types are those handled by stb_image, including PNG and TGA.
+Supported file types are those handled by stb_image, including PNG and TGA. Replacement supports
+regular uncompressed formats, common BC formats (BC1, BC3, BC7), and ASTC 4x4 preview blocks.
 
 :type: str
 )" );

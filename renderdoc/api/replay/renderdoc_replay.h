@@ -726,7 +726,8 @@ See :meth:`BuildTargetShader`, :meth:`RemoveReplacement`.
 
 This creates a proxy texture matching the target texture where possible, uploads replacement data,
 and calls :meth:`ReplaceResource`. It is intended for live preview and does not modify the capture
-file on disk.
+file on disk. Common compressed preview formats BC1, BC3, BC7, and ASTC are supported where proxy
+textures are supported by the replay driver.
 
 :param TextureReplacement replacement: The texture replacement configuration.
 :return: The result of the operation.
