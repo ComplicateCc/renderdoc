@@ -2428,8 +2428,11 @@ ResultDetails ReplayController::ReplaceTexture(const TextureReplacement &replace
   SetFrameEvent(m_EventID, true);
 
   for(size_t i = 0; i < m_Outputs.size(); i++)
+  {
+    m_Outputs[i]->ClearThumbnails();
     if(m_Outputs[i]->GetType() != ReplayOutputType::Headless)
       m_Outputs[i]->Display();
+  }
 
   return {ResultCode::Succeeded};
 }
@@ -2452,8 +2455,11 @@ void ReplayController::RemoveReplacement(ResourceId id)
   SetFrameEvent(m_EventID, true);
 
   for(size_t i = 0; i < m_Outputs.size(); i++)
+  {
+    m_Outputs[i]->ClearThumbnails();
     if(m_Outputs[i]->GetType() != ReplayOutputType::Headless)
       m_Outputs[i]->Display();
+  }
 }
 
 void ReplayController::ClearReplayCache()

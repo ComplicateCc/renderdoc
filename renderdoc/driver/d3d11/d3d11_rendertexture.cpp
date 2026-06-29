@@ -60,6 +60,10 @@ TextureShaderDetails D3D11DebugManager::GetShaderDetails(ResourceId id, CompType
 
   bool foundResource = false;
 
+  ID3D11DeviceChild *liveResource = m_pDevice->GetResourceManager()->GetResource(id);
+  if(liveResource != NULL)
+    id = GetIDForDeviceChild(liveResource);
+
   CacheElem &cache = GetCachedElem(id, typeCast, rawOutput);
 
   bool msaaDepth = false;
@@ -515,7 +519,12 @@ bool D3D11Replay::RenderTextureInternal(TextureDisplay cfg, TexDisplayFlags flag
   // we also override the typecast for depth here, to allow handling of S8 textures
   if(typeCast == CompType::Typeless || typeCast == CompType::Depth)
   {
-    auto it = m_ProxyResourceOrigInfo.find(cfg.resourceId);
+    ResourceId liveId = cfg.resourceId;
+    ID3D11DeviceChild *liveResource = m_pDevice->GetResourceManager()->GetResource(cfg.resourceId);
+    if(liveResource != NULL)
+      liveId = GetIDForDeviceChild(liveResource);
+
+    auto it = m_ProxyResourceOrigInfo.find(liveId);
     if(it != m_ProxyResourceOrigInfo.end())
       typeCast = it->second.format.compType;
   }

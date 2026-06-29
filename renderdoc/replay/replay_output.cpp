@@ -343,6 +343,7 @@ void ReplayOutput::ClearThumbnails()
     m_pDevice->DestroyOutputWindow(it->second);
 
   m_Thumbnails.clear();
+  m_ThumbnailGenerators.clear();
 }
 
 ResultDetails ReplayOutput::SetPixelContext(WindowingData window)
