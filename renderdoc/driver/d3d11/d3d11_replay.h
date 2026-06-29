@@ -254,6 +254,7 @@ public:
                          rdcstr &errors);
   void ReplaceResource(ResourceId from, ResourceId to);
   void RemoveReplacement(ResourceId id);
+  void RefreshDerivedReplacements(ResourceId from, ResourceId to);
   void ClearReplayCache();
   void ReloadShaderDebugInformation();
 

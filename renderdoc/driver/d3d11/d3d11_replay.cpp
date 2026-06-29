@@ -2687,13 +2687,95 @@ void D3D11Replay::ReplaceResource(ResourceId from, ResourceId to)
   }
 
   m_pDevice->GetResourceManager()->ReplaceResource(from, to);
+  RefreshDerivedReplacements(from, to);
   ClearPostVSCache();
 }
 
 void D3D11Replay::RemoveReplacement(ResourceId id)
 {
+  D3D11ResourceManager *rm = m_pDevice->GetResourceManager();
+  const ResourceDescription &desc = m_pDevice->GetResourceDesc(id);
+
+  for(ResourceId derivedId : desc.derivedResources)
+    if(rm->HasReplacement(derivedId))
+      rm->RemoveReplacement(derivedId);
+
   m_pDevice->GetResourceManager()->RemoveReplacement(id);
   ClearPostVSCache();
+}
+
+void D3D11Replay::RefreshDerivedReplacements(ResourceId from, ResourceId to)
+{
+  D3D11ResourceManager *rm = m_pDevice->GetResourceManager();
+  const ResourceDescription &fromDesc = m_pDevice->GetResourceDesc(from);
+
+  ID3D11Resource *replacementResource = (ID3D11Resource *)rm->GetResource(to);
+  if(replacementResource == NULL)
+    return;
+
+  for(ResourceId derivedId : fromDesc.derivedResources)
+  {
+    if(rm->HasReplacement(derivedId))
+      rm->RemoveReplacement(derivedId);
+
+    ID3D11DeviceChild *derived = (ID3D11DeviceChild *)rm->GetResource(derivedId);
+    if(derived == NULL)
+      continue;
+
+    ResourceId replacementViewId;
+
+    if(WrappedID3D11ShaderResourceView1::IsAlloc(derived))
+    {
+      D3D11_SHADER_RESOURCE_VIEW_DESC desc;
+      ((ID3D11ShaderResourceView *)derived)->GetDesc(&desc);
+
+      ID3D11ShaderResourceView *real = NULL;
+      HRESULT hr = m_pDevice->GetReal()->CreateShaderResourceView(
+          UnwrapResource(replacementResource), &desc, &real);
+
+      if(SUCCEEDED(hr) && real)
+      {
+        WrappedID3D11ShaderResourceView1 *wrapped =
+            new WrappedID3D11ShaderResourceView1(ResourceId(), real, replacementResource, m_pDevice);
+        replacementViewId = wrapped->GetResourceID();
+      }
+    }
+    else if(WrappedID3D11RenderTargetView1::IsAlloc(derived))
+    {
+      D3D11_RENDER_TARGET_VIEW_DESC desc;
+      ((ID3D11RenderTargetView *)derived)->GetDesc(&desc);
+
+      ID3D11RenderTargetView *real = NULL;
+      HRESULT hr = m_pDevice->GetReal()->CreateRenderTargetView(
+          UnwrapResource(replacementResource), &desc, &real);
+
+      if(SUCCEEDED(hr) && real)
+      {
+        WrappedID3D11RenderTargetView1 *wrapped =
+            new WrappedID3D11RenderTargetView1(ResourceId(), real, replacementResource, m_pDevice);
+        replacementViewId = wrapped->GetResourceID();
+      }
+    }
+    else if(WrappedID3D11UnorderedAccessView1::IsAlloc(derived))
+    {
+      D3D11_UNORDERED_ACCESS_VIEW_DESC desc;
+      ((ID3D11UnorderedAccessView *)derived)->GetDesc(&desc);
+
+      ID3D11UnorderedAccessView *real = NULL;
+      HRESULT hr = m_pDevice->GetReal()->CreateUnorderedAccessView(
+          UnwrapResource(replacementResource), &desc, &real);
+
+      if(SUCCEEDED(hr) && real)
+      {
+        WrappedID3D11UnorderedAccessView1 *wrapped =
+            new WrappedID3D11UnorderedAccessView1(ResourceId(), real, replacementResource, m_pDevice);
+        replacementViewId = wrapped->GetResourceID();
+      }
+    }
+
+    if(replacementViewId != ResourceId())
+      rm->ReplaceResource(derivedId, replacementViewId);
+  }
 }
 
 void D3D11Replay::ClearReplayCache()
