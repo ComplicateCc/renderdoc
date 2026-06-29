@@ -981,7 +981,8 @@ void D3D11Replay::SavePipelineState(uint32_t eventId)
     {
       Descriptor &descriptor = ret.outputMerger.renderTargets[i];
 
-      descriptor.view = GetIDForDeviceChild(rs->OM.RenderTargets[i]);
+      descriptor.view =
+          m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(rs->OM.RenderTargets[i]));
 
       if(descriptor.view != ResourceId())
       {
@@ -995,7 +996,8 @@ void D3D11Replay::SavePipelineState(uint32_t eventId)
         descriptor.elementByteSize =
             desc.Format == DXGI_FORMAT_UNKNOWN ? 1 : GetByteSize(1, 1, 1, desc.Format, 0);
 
-        descriptor.resource = GetIDForDeviceChild(res);
+        descriptor.resource =
+            m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(res));
 
         descriptor.type = DescriptorType::ReadWriteImage;
         descriptor.format = MakeResourceFormat(desc.Format);
@@ -1069,7 +1071,8 @@ void D3D11Replay::SavePipelineState(uint32_t eventId)
     {
       Descriptor &descriptor = ret.outputMerger.depthTarget;
 
-      descriptor.view = GetIDForDeviceChild(rs->OM.DepthView);
+      descriptor.view =
+          m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(rs->OM.DepthView));
 
       if(descriptor.view != ResourceId())
       {
@@ -1091,7 +1094,8 @@ void D3D11Replay::SavePipelineState(uint32_t eventId)
         if(desc.Flags & D3D11_DSV_READ_ONLY_STENCIL)
           ret.outputMerger.stencilReadOnly = true;
 
-        descriptor.resource = GetIDForDeviceChild(res);
+        descriptor.resource =
+            m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(res));
 
         descriptor.type = DescriptorType::ReadWriteImage;
         descriptor.format = MakeResourceFormat(desc.Format);
@@ -1336,7 +1340,8 @@ rdcarray<Descriptor> D3D11Replay::GetDescriptors(ResourceId descriptorStore,
       {
         ret[dst].type = DescriptorType::ConstantBuffer;
 
-        ret[dst].resource = GetIDForDeviceChild(src.ConstantBuffers[idx.idx]);
+        ret[dst].resource =
+            m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(src.ConstantBuffers[idx.idx]));
         ret[dst].byteOffset = src.CBOffsets[idx.idx] * sizeof(Vec4f);
         ret[dst].byteSize = src.CBCounts[idx.idx] * sizeof(Vec4f);
       }
@@ -1344,7 +1349,7 @@ rdcarray<Descriptor> D3D11Replay::GetDescriptors(ResourceId descriptorStore,
       {
         ID3D11ShaderResourceView *view = src.SRVs[idx.idx];
 
-        ret[dst].view = GetIDForDeviceChild(view);
+        ret[dst].view = m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(view));
 
         ret[dst].type = DescriptorType::Image;
         if(ret[dst].view != ResourceId())
@@ -1360,7 +1365,8 @@ rdcarray<Descriptor> D3D11Replay::GetDescriptors(ResourceId descriptorStore,
           ret[dst].elementByteSize =
               desc.Format == DXGI_FORMAT_UNKNOWN ? 1 : GetByteSize(1, 1, 1, desc.Format, 0);
 
-          ret[dst].resource = GetIDForDeviceChild(res);
+          ret[dst].resource =
+              m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(res));
 
           ret[dst].textureType = MakeTextureDim(desc.ViewDimension);
 
@@ -1461,7 +1467,7 @@ rdcarray<Descriptor> D3D11Replay::GetDescriptors(ResourceId descriptorStore,
         else if(idx.idx >= rs->OM.UAVStartSlot)
           view = rs->OM.UAVs[idx.idx - rs->OM.UAVStartSlot];
 
-        ret[dst].view = GetIDForDeviceChild(view);
+        ret[dst].view = m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(view));
 
         ret[dst].type = DescriptorType::ReadWriteImage;
         if(ret[dst].view != ResourceId())
@@ -1489,7 +1495,8 @@ rdcarray<Descriptor> D3D11Replay::GetDescriptors(ResourceId descriptorStore,
             ret[dst].secondary = GetDebugManager()->GetCounterBufferID(view);
           }
 
-          ret[dst].resource = GetIDForDeviceChild(res);
+          ret[dst].resource =
+              m_pDevice->GetResourceManager()->GetUnreplacedID(GetIDForDeviceChild(res));
 
           ret[dst].format = MakeResourceFormat(desc.Format);
 
