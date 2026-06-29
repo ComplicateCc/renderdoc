@@ -2381,13 +2381,20 @@ void TextureViewer::texContextReplaceFile_triggered()
   QAction *act = qobject_cast<QAction *>(QObject::sender());
   ResourceId id = act->property("id").value<ResourceId>();
 
-  ViewTexture(id, CompType::Typeless, false);
-  replaceCurrentTextureFile();
+  replaceTextureFile(id);
 }
 
 void TextureViewer::replaceCurrentTextureFile()
 {
   ResourceId id = GetCurrentResource();
+  if(id == ResourceId())
+    return;
+
+  replaceTextureFile(id);
+}
+
+void TextureViewer::replaceTextureFile(ResourceId id)
+{
   if(id == ResourceId())
     return;
 
@@ -2424,13 +2431,20 @@ void TextureViewer::texContextReplaceBuiltin_triggered()
   QAction *act = qobject_cast<QAction *>(QObject::sender());
   ResourceId id = act->property("id").value<ResourceId>();
 
-  ViewTexture(id, CompType::Typeless, false);
-  replaceCurrentTextureBuiltin((TextureReplacementType)act->property("replacementType").toUInt());
+  replaceTextureBuiltin(id, (TextureReplacementType)act->property("replacementType").toUInt());
 }
 
 void TextureViewer::replaceCurrentTextureBuiltin(TextureReplacementType type)
 {
   ResourceId id = GetCurrentResource();
+  if(id == ResourceId())
+    return;
+
+  replaceTextureBuiltin(id, type);
+}
+
+void TextureViewer::replaceTextureBuiltin(ResourceId id, TextureReplacementType type)
+{
   if(id == ResourceId())
     return;
 
@@ -2459,13 +2473,20 @@ void TextureViewer::texContextRemoveReplacement_triggered()
   QAction *act = qobject_cast<QAction *>(QObject::sender());
   ResourceId id = act->property("id").value<ResourceId>();
 
-  ViewTexture(id, CompType::Typeless, false);
-  removeCurrentTextureReplacement();
+  removeTextureReplacement(id);
 }
 
 void TextureViewer::removeCurrentTextureReplacement()
 {
   ResourceId id = GetCurrentResource();
+  if(id == ResourceId())
+    return;
+
+  removeTextureReplacement(id);
+}
+
+void TextureViewer::removeTextureReplacement(ResourceId id)
+{
   if(id == ResourceId())
     return;
 

@@ -220,6 +220,9 @@ private slots:
   void thumb_clicked(QMouseEvent *);
   void thumb_doubleClicked(QMouseEvent *);
   void texContextItem_triggered();
+  void replaceTextureFile(ResourceId id);
+  void replaceTextureBuiltin(ResourceId id, TextureReplacementType type);
+  void removeTextureReplacement(ResourceId id);
   void replaceCurrentTextureFile();
   void replaceCurrentTextureBuiltin(TextureReplacementType type);
   void removeCurrentTextureReplacement();
