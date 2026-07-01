@@ -855,6 +855,10 @@ DOCUMENT(R"(The source image to use when replacing a texture.
 .. data:: Checkerboard
 
   Use a black and white checkerboard debug texture.
+
+.. data:: FlatNormal
+
+  Use a flat tangent-space normal texture with RGBA value ``(128, 128, 255, 255)``.
 )" );
 enum class TextureReplacementType : uint32_t
 {
@@ -864,6 +868,7 @@ enum class TextureReplacementType : uint32_t
   White,
   Grey,
   Checkerboard,
+  FlatNormal,
   Count,
 };
 

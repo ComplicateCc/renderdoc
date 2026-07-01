@@ -11,7 +11,7 @@ The implementation adds replay-time texture replacement without modifying the RD
 - `IReplayController::ReplaceTexture(const TextureReplacement &replacement)` creates a proxy texture,
   uploads replacement pixels, and registers a resource replacement.
 - `TextureReplacement` supports image files handled by `stb_image` (including PNG/TGA) and built-in
-  debug textures: black, white, grey, and checkerboard.
+  debug textures: black, white, grey, checkerboard, and flat normal.
 - Imported replacement images are uploaded through an RGBA8 proxy texture instead of being encoded
   back into the original texture format. This avoids BC/typeless compatibility issues such as
   BC3_TYPELESS views. Built-in debug textures use the same proxy path.

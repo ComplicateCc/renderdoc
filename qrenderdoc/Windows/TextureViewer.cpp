@@ -552,6 +552,7 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
     QAction *white = replaceMenu->addAction(tr("White"));
     QAction *grey = replaceMenu->addAction(tr("Grey"));
     QAction *checkerboard = replaceMenu->addAction(tr("Checkerboard"));
+    QAction *flatNormal = replaceMenu->addAction(tr("Flat Normal"));
     replaceMenu->addSeparator();
     QAction *remove = replaceMenu->addAction(tr("Remove replacement"));
 
@@ -569,6 +570,9 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
     });
     QObject::connect(checkerboard, &QAction::triggered, [this]() {
       replaceCurrentTextureBuiltin(TextureReplacementType::Checkerboard);
+    });
+    QObject::connect(flatNormal, &QAction::triggered, [this]() {
+      replaceCurrentTextureBuiltin(TextureReplacementType::FlatNormal);
     });
     QObject::connect(remove, &QAction::triggered, this,
                      &TextureViewer::removeCurrentTextureReplacement);
@@ -2550,6 +2554,7 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
     QAction replaceWhite(tr("White"), this);
     QAction replaceGrey(tr("Grey"), this);
     QAction replaceCheckerboard(tr("Checkerboard"), this);
+    QAction replaceFlatNormal(tr("Flat Normal"), this);
 
     replaceMenu.addAction(&replaceFromFile);
     replaceMenu.addSeparator();
@@ -2557,6 +2562,7 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
     replaceMenu.addAction(&replaceWhite);
     replaceMenu.addAction(&replaceGrey);
     replaceMenu.addAction(&replaceCheckerboard);
+    replaceMenu.addAction(&replaceFlatNormal);
 
     contextMenu.addMenu(&replaceMenu);
 
@@ -2578,11 +2584,14 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
     replaceWhite.setProperty("id", QVariant::fromValue(id));
     replaceGrey.setProperty("id", QVariant::fromValue(id));
     replaceCheckerboard.setProperty("id", QVariant::fromValue(id));
+    replaceFlatNormal.setProperty("id", QVariant::fromValue(id));
     replaceBlack.setProperty("replacementType", QVariant((uint)TextureReplacementType::Black));
     replaceWhite.setProperty("replacementType", QVariant((uint)TextureReplacementType::White));
     replaceGrey.setProperty("replacementType", QVariant((uint)TextureReplacementType::Grey));
     replaceCheckerboard.setProperty("replacementType",
                                     QVariant((uint)TextureReplacementType::Checkerboard));
+    replaceFlatNormal.setProperty("replacementType",
+                                  QVariant((uint)TextureReplacementType::FlatNormal));
 
     QObject::connect(&openLockedTab, &QAction::triggered, this,
                      &TextureViewer::texContextItem_triggered);
@@ -2598,6 +2607,8 @@ void TextureViewer::OpenResourceContextMenu(ResourceId id, bool input,
     QObject::connect(&replaceGrey, &QAction::triggered, this,
                      &TextureViewer::texContextReplaceBuiltin_triggered);
     QObject::connect(&replaceCheckerboard, &QAction::triggered, this,
+                     &TextureViewer::texContextReplaceBuiltin_triggered);
+    QObject::connect(&replaceFlatNormal, &QAction::triggered, this,
                      &TextureViewer::texContextReplaceBuiltin_triggered);
 
     QObject::connect(&openResourceInspector, &QAction::triggered, [this, id]() {

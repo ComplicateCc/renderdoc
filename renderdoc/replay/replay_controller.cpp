@@ -123,7 +123,16 @@ static ReplacementImage LoadTextureReplacementImage(const TextureReplacement &re
           value = (((x / 8) + (y / 8)) & 1) ? 255 : 0;
 
         byte *pixel = image.pixels.data() + (size_t(y) * image.width + x) * 4;
-        pixel[0] = pixel[1] = pixel[2] = value;
+        if(replacement.type == TextureReplacementType::FlatNormal)
+        {
+          pixel[0] = 128;
+          pixel[1] = 128;
+          pixel[2] = 255;
+        }
+        else
+        {
+          pixel[0] = pixel[1] = pixel[2] = value;
+        }
         pixel[3] = 255;
       }
     }
