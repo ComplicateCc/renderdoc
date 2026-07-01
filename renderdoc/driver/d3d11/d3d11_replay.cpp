@@ -2742,6 +2742,14 @@ void D3D11Replay::RefreshDerivedReplacements(ResourceId from, ResourceId to)
       HRESULT hr = m_pDevice->GetReal()->CreateShaderResourceView(
           UnwrapResource(replacementResource), &desc, &real);
 
+      if(FAILED(hr))
+      {
+        desc.Format = IsSRGBFormat(desc.Format) ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                                                : DXGI_FORMAT_R8G8B8A8_UNORM;
+        hr = m_pDevice->GetReal()->CreateShaderResourceView(UnwrapResource(replacementResource),
+                                                            &desc, &real);
+      }
+
       if(SUCCEEDED(hr) && real)
       {
         WrappedID3D11ShaderResourceView1 *wrapped =
@@ -2758,6 +2766,14 @@ void D3D11Replay::RefreshDerivedReplacements(ResourceId from, ResourceId to)
       HRESULT hr = m_pDevice->GetReal()->CreateRenderTargetView(
           UnwrapResource(replacementResource), &desc, &real);
 
+      if(FAILED(hr))
+      {
+        desc.Format = IsSRGBFormat(desc.Format) ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+                                                : DXGI_FORMAT_R8G8B8A8_UNORM;
+        hr = m_pDevice->GetReal()->CreateRenderTargetView(UnwrapResource(replacementResource),
+                                                          &desc, &real);
+      }
+
       if(SUCCEEDED(hr) && real)
       {
         WrappedID3D11RenderTargetView1 *wrapped =
@@ -2773,6 +2789,13 @@ void D3D11Replay::RefreshDerivedReplacements(ResourceId from, ResourceId to)
       ID3D11UnorderedAccessView *real = NULL;
       HRESULT hr = m_pDevice->GetReal()->CreateUnorderedAccessView(
           UnwrapResource(replacementResource), &desc, &real);
+
+      if(FAILED(hr))
+      {
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        hr = m_pDevice->GetReal()->CreateUnorderedAccessView(UnwrapResource(replacementResource),
+                                                             &desc, &real);
+      }
 
       if(SUCCEEDED(hr) && real)
       {

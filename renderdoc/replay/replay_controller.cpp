@@ -53,7 +53,8 @@ static bool IsTextureReplacementFormatSupported(const ResourceFormat &format)
 {
   if(format.type == ResourceFormatType::BC1 || format.type == ResourceFormatType::BC3 ||
      format.type == ResourceFormatType::BC7 || format.type == ResourceFormatType::ASTC)
-    return format.compType == CompType::UNorm || format.compType == CompType::UNormSRGB;
+    return format.compType == CompType::Typeless || format.compType == CompType::UNorm ||
+           format.compType == CompType::UNormSRGB;
 
   if(format.BlockFormat())
     return false;
@@ -65,10 +66,21 @@ static bool IsTextureReplacementFormatSupported(const ResourceFormat &format)
      format.type != ResourceFormatType::A8)
     return false;
 
-  return format.compType == CompType::UNorm || format.compType == CompType::UNormSRGB ||
+  return format.compType == CompType::Typeless || format.compType == CompType::UNorm ||
+         format.compType == CompType::UNormSRGB ||
          format.compType == CompType::SNorm || format.compType == CompType::UInt ||
          format.compType == CompType::SInt || format.compType == CompType::UScaled ||
          format.compType == CompType::SScaled || format.compType == CompType::Float;
+}
+
+static ResourceFormat ReplacementRGBAFormat(const ResourceFormat &original)
+{
+  ResourceFormat replacement;
+  replacement.type = ResourceFormatType::Regular;
+  replacement.compCount = 4;
+  replacement.compByteWidth = 1;
+  replacement.compType = original.SRGBCorrected() ? CompType::UNormSRGB : CompType::UNorm;
+  return replacement;
 }
 
 static ReplacementImage LoadTextureReplacementImage(const TextureReplacement &replacement)
@@ -2408,6 +2420,7 @@ ResultDetails ReplayController::ReplaceTexture(const TextureReplacement &replace
                         source.height, original->width, original->height);
 
   TextureDescription proxyTemplate = *original;
+  proxyTemplate.format = ReplacementRGBAFormat(original->format);
   ResourceId proxyId = m_pDevice->CreateProxyTexture(proxyTemplate);
   FatalErrorCheck();
 
@@ -2422,14 +2435,14 @@ ResultDetails ReplayController::ReplaceTexture(const TextureReplacement &replace
     const uint32_t mipWidth = RDCMAX(1U, original->width >> mip);
     const uint32_t mipHeight = RDCMAX(1U, original->height >> mip);
     rdcarray<byte> rgba = ResizeRGBA8(source.pixels, source.width, source.height, mipWidth, mipHeight);
-    rdcarray<byte> encoded = EncodeTextureReplacementMip(rgba, mipWidth, mipHeight, original->format);
+    rdcarray<byte> encoded = EncodeTextureReplacementMip(rgba, mipWidth, mipHeight, proxyTemplate.format);
 
     if(encoded.empty())
     {
       m_TargetResources.erase(proxyId);
       m_pDevice->FreeTargetResource(proxyId);
       RETURN_ERROR_RESULT(ResultCode::ImageUnsupported,
-                          "Failed to encode replacement pixels as %s", original->format.Name().c_str());
+                          "Failed to encode replacement pixels as %s", proxyTemplate.format.Name().c_str());
     }
 
     const uint32_t slices = RDCMAX(1U, original->arraysize);

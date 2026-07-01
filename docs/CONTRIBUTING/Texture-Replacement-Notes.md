@@ -1,4 +1,4 @@
-﻿# Texture Replacement Development Notes
+# Texture Replacement Development Notes
 
 This note records implementation details and pitfalls from adding live texture replacement preview in
 qrenderdoc. It is intended as a maintenance reference for future work on similar replay-time resource
@@ -12,9 +12,9 @@ The implementation adds replay-time texture replacement without modifying the RD
   uploads replacement pixels, and registers a resource replacement.
 - `TextureReplacement` supports image files handled by `stb_image` (including PNG/TGA) and built-in
   debug textures: black, white, grey, and checkerboard.
-- Uncompressed regular formats and common compressed formats are supported for preview:
-  - BC1, BC3, BC7 use Compressonator block encoders.
-  - ASTC uses ASTC 4x4 constant-color blocks for fast preview/debug replacement.
+- Imported replacement images are uploaded through an RGBA8 proxy texture instead of being encoded
+  back into the original texture format. This avoids BC/typeless compatibility issues such as
+  BC3_TYPELESS views. Built-in debug textures use the same proxy path.
 - qrenderdoc exposes this through the Texture Viewer toolbar `Replace...` button.
 
 ## Important Commits
@@ -83,16 +83,20 @@ Fix:
 - Replacement no longer calls `ViewTexture()` and only refreshes the current event, current preview,
   and active thumbnails.
 
-### Compressed formats need block-sized data
+### Compressed and typeless formats use an RGBA proxy
 
-Compressed formats require block-compressed upload data, not RGBA pixels. Non-multiple-of-four mips must
-be edge-clamped when building 4x4 blocks.
+Early versions tried to encode replacement images into the original texture format, including
+BC1/BC3/BC7/ASTC blocks. This caused problems for typeless compressed resources such as
+BC3_TYPELESS because the replacement proxy and the original view format were not always compatible.
 
 Fix:
 
-- BC1/BC3/BC7 replacement mips are block encoded from RGBA8 with edge clamping.
-- ASTC preview uses valid ASTC constant-color blocks with averaged per-block color.
-- Unsupported compressed formats still return `ImageUnsupported` instead of attempting unsafe uploads.
+- Imported images now create an RGBA8 proxy texture (R8G8B8A8_UNORM or SRGB) for replay-time replacement.
+- D3D11 derived SRV/RTV/UAV creation first tries the original view description, then falls
+  back to an RGBA8 view format when the original compressed/typeless view cannot be created
+  on the RGBA proxy.
+- This path is preferred for user-imported images because it avoids needing full recompression
+  support for every BC/ASTC/typeless variant and is more robust for preview/debug use.
 
 ## Validation Commands
 
