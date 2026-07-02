@@ -6,18 +6,18 @@
 
 RenderDoc is a frame-capture based graphics debugger, currently available for Vulkan, D3D11, D3D12, OpenGL, and OpenGL ES development on Windows, Linux, Android, and Nintendo Switch&trade;. It is completely open-source under the MIT license.
 
-TA Development Additions
+TA 新增功能
 --------------
 
-This branch includes several TA-focused debugging extensions added during recent development:
+当前分支包含最近几天新增的 TA 向调试扩展：
 
-* **Shader static branch stripping**: shader edit windows now include a `Strip Branches` action that evaluates static `#define`-driven preprocessor branches, removes unreachable shader code paths, and optionally preserves the original macro definitions with `Keep macros`.
-* **Texture replacement workflow**: texture viewer tooling can replace replay textures, preview replacements, refresh thumbnails/views after replacement, handle compressed replacement formats, and use RGBA/flat-normal proxy textures for safer preview paths.
-* **D3D11 replacement correctness**: D3D11 texture replacement paths keep descriptors canonical and route previews through replacement resources to reduce state mismatch during replay inspection.
-* **CBuffer editing support**: TA CBuffer tools add editable constant-buffer values with documented validation requirements for read/write round-trips, local byte-range patches, offset semantics, and error reporting.
-* **TA performance inspection**: a TA performance tree viewer and pass/draw diff helpers provide additional performance-oriented replay inspection views.
+* **Shader 静态分支精简**：Shader 编辑窗口新增 `Strip Branches` 操作，可根据静态 `#define` 宏求值预处理分支，移除不会执行的 shader 代码路径，并可通过 `Keep macros` 选择是否保留原始宏定义。
+* **纹理替换工作流**：Texture Viewer 支持 replay 纹理替换、替换预览、替换后刷新缩略图和相关视图、压缩纹理格式替换，并使用 RGBA / flat-normal proxy texture 降低预览路径风险。
+* **D3D11 替换正确性**：D3D11 纹理替换路径会保持 descriptor canonical，并让预览路径走 replacement resource，减少 replay 检查时的状态不一致。
+* **CBuffer 编辑支持**：TA CBuffer 工具支持编辑常量缓冲变量，并补充了读写闭环、局部字节范围 patch、offset 语义和错误信息等验证要求。
+* **TA 性能查看**：新增 TA Performance Tree Viewer 和 pass/draw diff 辅助能力，用于补充 replay 中的性能向检查视图。
 
-See [docs/ta_weekly_feature_updates.md](docs/ta_weekly_feature_updates.md), [docs/ta_renderdoc_cbuffer_development_retrospective.md](docs/ta_renderdoc_cbuffer_development_retrospective.md), and [docs/ta_performance_viewer.md](docs/ta_performance_viewer.md) for more details.
+更多说明见 [docs/ta_weekly_feature_updates.md](docs/ta_weekly_feature_updates.md)、[docs/ta_renderdoc_cbuffer_development_retrospective.md](docs/ta_renderdoc_cbuffer_development_retrospective.md) 和 [docs/ta_performance_viewer.md](docs/ta_performance_viewer.md)。
 
 RenderDoc is intended for debugging your own programs only. Any discussion of capturing programs that you did not create will not be allowed in any official public RenderDoc setting, including the issue tracker, discord, or via email. For example this includes capturing commercial games that you did not create, or capturing Google Maps or Google Earth. Note: Capturing projects you created that use a third party engine like Unreal or Unity, or open source and free projects is completely fine and supported.
 
