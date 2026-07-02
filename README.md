@@ -6,6 +6,19 @@
 
 RenderDoc is a frame-capture based graphics debugger, currently available for Vulkan, D3D11, D3D12, OpenGL, and OpenGL ES development on Windows, Linux, Android, and Nintendo Switch&trade;. It is completely open-source under the MIT license.
 
+TA Development Additions
+--------------
+
+This branch includes several TA-focused debugging extensions added during recent development:
+
+* **Shader static branch stripping**: shader edit windows now include a `Strip Branches` action that evaluates static `#define`-driven preprocessor branches, removes unreachable shader code paths, and optionally preserves the original macro definitions with `Keep macros`.
+* **Texture replacement workflow**: texture viewer tooling can replace replay textures, preview replacements, refresh thumbnails/views after replacement, handle compressed replacement formats, and use RGBA/flat-normal proxy textures for safer preview paths.
+* **D3D11 replacement correctness**: D3D11 texture replacement paths keep descriptors canonical and route previews through replacement resources to reduce state mismatch during replay inspection.
+* **CBuffer editing support**: TA CBuffer tools add editable constant-buffer values with documented validation requirements for read/write round-trips, local byte-range patches, offset semantics, and error reporting.
+* **TA performance inspection**: a TA performance tree viewer and pass/draw diff helpers provide additional performance-oriented replay inspection views.
+
+See [docs/ta_weekly_feature_updates.md](docs/ta_weekly_feature_updates.md), [docs/ta_renderdoc_cbuffer_development_retrospective.md](docs/ta_renderdoc_cbuffer_development_retrospective.md), and [docs/ta_performance_viewer.md](docs/ta_performance_viewer.md) for more details.
+
 RenderDoc is intended for debugging your own programs only. Any discussion of capturing programs that you did not create will not be allowed in any official public RenderDoc setting, including the issue tracker, discord, or via email. For example this includes capturing commercial games that you did not create, or capturing Google Maps or Google Earth. Note: Capturing projects you created that use a third party engine like Unreal or Unity, or open source and free projects is completely fine and supported.
 
 If you have any questions, suggestions or problems or you can [create an issue](https://github.com/baldurk/renderdoc/issues/new/choose) here on github, [email me directly](mailto:baldurk@baldurk.org) or come into [IRC](https://webchat.oftc.net/?channels=renderdoc) or [Discord](https://discord.gg/ahq6yRB) to discuss it.
