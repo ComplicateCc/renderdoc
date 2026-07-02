@@ -187,6 +187,7 @@ private slots:
   void on_refresh_clicked();
   void on_unrefresh_clicked();
   void on_resetEdits_clicked();
+  void on_stripBranches_clicked();
   void on_intView_clicked();
   void on_floatView_clicked();
   void on_debugToggle_clicked();
@@ -247,6 +248,8 @@ private:
   void gotoDisassemblyDebugging();
 
   void insertSnippet(const QString &text);
+  QString StripStaticShaderBranches(const QString &source, bool keepDefines,
+                                    QString *report = NULL) const;
 
   void showVariableTooltip(QString name);
   void updateVariableTooltip();

@@ -221,6 +221,518 @@ struct AccessedResourceTag
 Q_DECLARE_METATYPE(VariableTag);
 Q_DECLARE_METATYPE(AccessedResourceTag);
 
+namespace
+{
+struct StaticBranchEval
+{
+  bool isStatic = false;
+  bool value = false;
+};
+
+enum class StripTokenType
+{
+  Number,
+  Identifier,
+  Operator,
+  LeftParen,
+  RightParen,
+  End,
+};
+
+struct StripToken
+{
+  StripTokenType type = StripTokenType::End;
+  QString text;
+};
+
+static QRegularExpression stripDefineRE(
+    lit("^\\s*#\\s*define\\s+([A-Za-z_]\\w*)\\s+(.*?)\\s*$"));
+static QRegularExpression stripFuncDefineRE(
+    lit("^\\s*#\\s*define\\s+([A-Za-z_]\\w*)\\s*\\(.*?\\)"));
+static QRegularExpression stripNoValueDefineRE(lit("^\\s*#\\s*define\\s+([A-Za-z_]\\w*)\\s*$"));
+static QRegularExpression stripIdentifierRE(lit("[A-Za-z_]\\w*"));
+static QRegularExpression stripDirectiveRE(
+    lit("^\\s*#\\s*(?:if|ifdef|ifndef|elif|else|endif|define|undef|pragma|include|error|warning|"
+        "line)\\b"));
+static QRegularExpression stripIfRE(lit("^\\s*#\\s*if\\s+(.+)$"));
+static QRegularExpression stripIfdefRE(lit("^\\s*#\\s*ifdef\\s+(\\w+)"));
+static QRegularExpression stripIfndefRE(lit("^\\s*#\\s*ifndef\\s+(\\w+)"));
+static QRegularExpression stripElifRE(lit("^\\s*#\\s*elif\\s+(.+)$"));
+static QRegularExpression stripElseRE(lit("^\\s*#\\s*else\\b"));
+static QRegularExpression stripEndifRE(lit("^\\s*#\\s*endif\\b"));
+
+static bool StripTokenMatches(const StripToken &token, StripTokenType type, const QString &text)
+{
+  return token.type == type && token.text == text;
+}
+
+static QVector<StripToken> TokenizeStripExpression(const QString &expr)
+{
+  QVector<StripToken> tokens;
+
+  int offset = 0;
+  while(offset < expr.length())
+  {
+    const QChar c = expr[offset];
+    if(c.isSpace())
+    {
+      offset++;
+      continue;
+    }
+
+    if(c.isDigit() || (c == QLatin1Char('-') && offset + 1 < expr.length() &&
+                       expr[offset + 1].isDigit()))
+    {
+      int end = offset + 1;
+      while(end < expr.length() && expr[end].isDigit())
+        end++;
+      if(end < expr.length() && expr[end] == QLatin1Char('.'))
+      {
+        end++;
+        while(end < expr.length() && expr[end].isDigit())
+          end++;
+      }
+      tokens.push_back({StripTokenType::Number, expr.mid(offset, end - offset)});
+      offset = end;
+      continue;
+    }
+
+    if(c.isLetter() || c == QLatin1Char('_'))
+    {
+      int end = offset + 1;
+      while(end < expr.length() &&
+            (expr[end].isLetterOrNumber() || expr[end] == QLatin1Char('_')))
+        end++;
+      tokens.push_back({StripTokenType::Identifier, expr.mid(offset, end - offset)});
+      offset = end;
+      continue;
+    }
+
+    if(c == QLatin1Char('('))
+    {
+      tokens.push_back({StripTokenType::LeftParen, lit("(")});
+      offset++;
+      continue;
+    }
+
+    if(c == QLatin1Char(')'))
+    {
+      tokens.push_back({StripTokenType::RightParen, lit(")")});
+      offset++;
+      continue;
+    }
+
+    const QString two = expr.mid(offset, 2);
+    if(two == lit("&&") || two == lit("||") || two == lit("!=") || two == lit("==") ||
+       two == lit(">=") || two == lit("<=") || two == lit("<<") || two == lit(">>"))
+    {
+      tokens.push_back({StripTokenType::Operator, two});
+      offset += 2;
+      continue;
+    }
+
+    if(lit("!<>+-*/%&|^~").contains(c))
+      tokens.push_back({StripTokenType::Operator, QString(c)});
+
+    offset++;
+  }
+
+  tokens.push_back({StripTokenType::End, QString()});
+  return tokens;
+}
+
+class StripExprParser
+{
+public:
+  StripExprParser(const QString &expr, const QMap<QString, QString> &macros)
+      : m_Macros(macros), m_Tokens(TokenizeStripExpression(expr))
+  {
+  }
+
+  StaticBranchEval evaluate()
+  {
+    int64_t result = 0;
+    if(!parseOr(result) || m_Dynamic)
+      return {};
+    return {true, result != 0};
+  }
+
+private:
+  const StripToken &peek() const { return m_Tokens[qMin(m_Pos, m_Tokens.size() - 1)]; }
+
+  StripToken consume()
+  {
+    StripToken ret = peek();
+    if(m_Pos < m_Tokens.size())
+      m_Pos++;
+    return ret;
+  }
+
+  bool expect(StripTokenType type, const QString &text = QString())
+  {
+    StripToken token = consume();
+    if(token.type != type || (!text.isEmpty() && token.text != text))
+    {
+      m_Dynamic = true;
+      return false;
+    }
+    return true;
+  }
+
+  bool parseOr(int64_t &out)
+  {
+    if(!parseAnd(out))
+      return false;
+    while(StripTokenMatches(peek(), StripTokenType::Operator, lit("||")))
+    {
+      consume();
+      int64_t right = 0;
+      if(!parseAnd(right))
+        return false;
+      out = (out || right) ? 1 : 0;
+    }
+    return true;
+  }
+
+  bool parseAnd(int64_t &out)
+  {
+    if(!parseBitOr(out))
+      return false;
+    while(StripTokenMatches(peek(), StripTokenType::Operator, lit("&&")))
+    {
+      consume();
+      int64_t right = 0;
+      if(!parseBitOr(right))
+        return false;
+      out = (out && right) ? 1 : 0;
+    }
+    return true;
+  }
+
+  bool parseBitOr(int64_t &out)
+  {
+    if(!parseBitXor(out))
+      return false;
+    while(StripTokenMatches(peek(), StripTokenType::Operator, lit("|")))
+    {
+      consume();
+      int64_t right = 0;
+      if(!parseBitXor(right))
+        return false;
+      out = out | right;
+    }
+    return true;
+  }
+
+  bool parseBitXor(int64_t &out)
+  {
+    if(!parseBitAnd(out))
+      return false;
+    while(StripTokenMatches(peek(), StripTokenType::Operator, lit("^")))
+    {
+      consume();
+      int64_t right = 0;
+      if(!parseBitAnd(right))
+        return false;
+      out = out ^ right;
+    }
+    return true;
+  }
+
+  bool parseBitAnd(int64_t &out)
+  {
+    if(!parseEquality(out))
+      return false;
+    while(StripTokenMatches(peek(), StripTokenType::Operator, lit("&")))
+    {
+      consume();
+      int64_t right = 0;
+      if(!parseEquality(right))
+        return false;
+      out = out & right;
+    }
+    return true;
+  }
+
+  bool parseEquality(int64_t &out)
+  {
+    if(!parseRelational(out))
+      return false;
+    while(peek().type == StripTokenType::Operator &&
+          (peek().text == lit("==") || peek().text == lit("!=")))
+    {
+      const QString op = consume().text;
+      int64_t right = 0;
+      if(!parseRelational(right))
+        return false;
+      out = (op == lit("==")) ? (out == right ? 1 : 0) : (out != right ? 1 : 0);
+    }
+    return true;
+  }
+
+  bool parseRelational(int64_t &out)
+  {
+    if(!parseShift(out))
+      return false;
+    while(peek().type == StripTokenType::Operator &&
+          (peek().text == lit(">") || peek().text == lit("<") || peek().text == lit(">=") ||
+           peek().text == lit("<=")))
+    {
+      const QString op = consume().text;
+      int64_t right = 0;
+      if(!parseShift(right))
+        return false;
+      if(op == lit(">"))
+        out = out > right ? 1 : 0;
+      else if(op == lit("<"))
+        out = out < right ? 1 : 0;
+      else if(op == lit(">="))
+        out = out >= right ? 1 : 0;
+      else
+        out = out <= right ? 1 : 0;
+    }
+    return true;
+  }
+
+  bool parseShift(int64_t &out)
+  {
+    if(!parseAdditive(out))
+      return false;
+    while(peek().type == StripTokenType::Operator &&
+          (peek().text == lit("<<") || peek().text == lit(">>")))
+    {
+      const QString op = consume().text;
+      int64_t right = 0;
+      if(!parseAdditive(right))
+        return false;
+      out = (op == lit("<<")) ? (out << right) : (out >> right);
+    }
+    return true;
+  }
+
+  bool parseAdditive(int64_t &out)
+  {
+    if(!parseMultiplicative(out))
+      return false;
+    while(peek().type == StripTokenType::Operator &&
+          (peek().text == lit("+") || peek().text == lit("-")))
+    {
+      const QString op = consume().text;
+      int64_t right = 0;
+      if(!parseMultiplicative(right))
+        return false;
+      out = (op == lit("+")) ? out + right : out - right;
+    }
+    return true;
+  }
+
+  bool parseMultiplicative(int64_t &out)
+  {
+    if(!parseUnary(out))
+      return false;
+    while(peek().type == StripTokenType::Operator &&
+          (peek().text == lit("*") || peek().text == lit("/") || peek().text == lit("%")))
+    {
+      const QString op = consume().text;
+      int64_t right = 0;
+      if(!parseUnary(right))
+        return false;
+      if(op == lit("*"))
+        out = out * right;
+      else if(op == lit("/"))
+        out = right != 0 ? out / right : 0;
+      else
+        out = right != 0 ? out % right : 0;
+    }
+    return true;
+  }
+
+  bool parseUnary(int64_t &out)
+  {
+    if(StripTokenMatches(peek(), StripTokenType::Operator, lit("!")))
+    {
+      consume();
+      if(!parseUnary(out))
+        return false;
+      out = !out ? 1 : 0;
+      return true;
+    }
+    if(StripTokenMatches(peek(), StripTokenType::Operator, lit("-")))
+    {
+      consume();
+      if(!parseUnary(out))
+        return false;
+      out = -out;
+      return true;
+    }
+    if(StripTokenMatches(peek(), StripTokenType::Operator, lit("~")))
+    {
+      consume();
+      if(!parseUnary(out))
+        return false;
+      out = ~out;
+      return true;
+    }
+    return parsePrimary(out);
+  }
+
+  bool parsePrimary(int64_t &out)
+  {
+    StripToken token = peek();
+
+    if(token.type == StripTokenType::Number)
+    {
+      consume();
+      bool ok = false;
+      out = token.text.contains(QLatin1Char('.')) ? int64_t(token.text.toDouble(&ok))
+                                                  : token.text.toLongLong(&ok);
+      if(!ok)
+        m_Dynamic = true;
+      return ok;
+    }
+
+    if(token.type == StripTokenType::Identifier)
+    {
+      consume();
+
+      if(token.text == lit("defined"))
+      {
+        QString name;
+        if(StripTokenMatches(peek(), StripTokenType::LeftParen, lit("(")))
+        {
+          consume();
+          if(peek().type != StripTokenType::Identifier)
+          {
+            m_Dynamic = true;
+            return false;
+          }
+          name = consume().text;
+          expect(StripTokenType::RightParen, lit(")"));
+        }
+        else
+        {
+          if(peek().type != StripTokenType::Identifier)
+          {
+            m_Dynamic = true;
+            return false;
+          }
+          name = consume().text;
+        }
+        out = m_Macros.contains(name) ? 1 : 0;
+        return !m_Dynamic;
+      }
+
+      if(token.text == lit("true"))
+      {
+        out = 1;
+        return true;
+      }
+      if(token.text == lit("false"))
+      {
+        out = 0;
+        return true;
+      }
+
+      if(m_Macros.contains(token.text))
+      {
+        StripExprParser subParser(m_Macros[token.text], m_Macros);
+        StaticBranchEval result = subParser.evaluate();
+        if(!result.isStatic)
+        {
+          m_Dynamic = true;
+          return false;
+        }
+        out = result.value ? 1 : 0;
+        return true;
+      }
+
+      m_Dynamic = true;
+      return false;
+    }
+
+    if(StripTokenMatches(token, StripTokenType::LeftParen, lit("(")))
+    {
+      consume();
+      if(!parseOr(out))
+        return false;
+      return expect(StripTokenType::RightParen, lit(")"));
+    }
+
+    m_Dynamic = true;
+    consume();
+    return false;
+  }
+
+  const QMap<QString, QString> &m_Macros;
+  QVector<StripToken> m_Tokens;
+  int m_Pos = 0;
+  bool m_Dynamic = false;
+};
+
+static StaticBranchEval EvalStripCondition(const QString &expr, const QMap<QString, QString> &macros)
+{
+  if(expr.trimmed().isEmpty())
+    return {};
+
+  StripExprParser parser(expr.trimmed(), macros);
+  return parser.evaluate();
+}
+
+struct StripIfBlock
+{
+  bool isStatic = false;
+  bool conditionValue = false;
+  bool foundTrueBranch = false;
+};
+
+static bool StripOutputActive(const QVector<StripIfBlock> &stack)
+{
+  for(const StripIfBlock &block : stack)
+    if(block.isStatic && !block.conditionValue)
+      return false;
+  return true;
+}
+
+static bool StripInDynamicBlock(const QVector<StripIfBlock> &stack)
+{
+  for(const StripIfBlock &block : stack)
+    if(!block.isStatic)
+      return true;
+  return false;
+}
+
+static bool StripParentActive(const QVector<StripIfBlock> &stack, int count)
+{
+  for(int i = 0; i < count; i++)
+    if(stack[i].isStatic && !stack[i].conditionValue)
+      return false;
+  return true;
+}
+
+static QStringList SplitShaderLinesKeepEnds(const QString &source)
+{
+  QStringList lines;
+  int offset = 0;
+  while(offset < source.length())
+  {
+    int newline = source.indexOf(QLatin1Char('\n'), offset);
+    if(newline < 0)
+    {
+      lines << source.mid(offset);
+      break;
+    }
+
+    lines << source.mid(offset, newline - offset + 1);
+    offset = newline + 1;
+  }
+
+  if(source.isEmpty())
+    lines << QString();
+
+  return lines;
+}
+}
+
 ShaderViewer::ShaderViewer(ICaptureContext &ctx, QWidget *parent)
     : QFrame(parent), ui(new Ui::ShaderViewer), m_Ctx(ctx)
 {
@@ -710,6 +1222,8 @@ void ShaderViewer::debugShader(const ShaderReflection *shader, ResourceId pipeli
   ui->resetEdits->hide();
   ui->editStatusLabel->hide();
   ui->snippets->hide();
+  ui->stripBranches->hide();
+  ui->stripKeepDefines->hide();
   ui->editSep->hide();
 
   ConfigureBookmarkMenu();
@@ -5776,6 +6290,303 @@ void ShaderViewer::insertSnippet(const QString &text)
   m_Scintillas[0]->insertText(snippetPos(), text.toUtf8().data());
 
   m_Scintillas[0]->setSelection(0, 0);
+}
+
+QString ShaderViewer::StripStaticShaderBranches(const QString &source, bool keepDefines,
+                                                QString *report) const
+{
+  const QStringList lines = SplitShaderLinesKeepEnds(source);
+  QMap<QString, QString> rawMacros;
+  QSet<int> defineLines;
+  QMap<int, QString> defineLineToName;
+
+  for(int i = 0; i < lines.count(); i++)
+  {
+    const QString &line = lines[i];
+
+    if(stripFuncDefineRE.match(line).hasMatch())
+      continue;
+
+    QRegularExpressionMatch noValue = stripNoValueDefineRE.match(line);
+    if(noValue.hasMatch())
+    {
+      const QString name = noValue.captured(1);
+      rawMacros[name] = lit("1");
+      defineLines.insert(i);
+      defineLineToName[i] = name;
+      continue;
+    }
+
+    QRegularExpressionMatch define = stripDefineRE.match(line);
+    if(define.hasMatch())
+    {
+      QString value = define.captured(2).trimmed();
+      int commentPos = value.indexOf(lit("//"));
+      if(commentPos >= 0)
+        value = value.left(commentPos).trimmed();
+
+      const QString name = define.captured(1);
+      rawMacros[name] = value;
+      defineLines.insert(i);
+      defineLineToName[i] = name;
+    }
+  }
+
+  QMap<QString, QString> macros;
+  QSet<QString> resolving;
+  std::function<QString(const QString &)> resolveMacro = [&](const QString &name) {
+    if(macros.contains(name))
+      return macros[name];
+    if(resolving.contains(name))
+      return rawMacros[name];
+
+    resolving.insert(name);
+    QString value = rawMacros[name];
+    QRegularExpressionMatchIterator it = stripIdentifierRE.globalMatch(value);
+    QString resolvedValue;
+    int last = 0;
+    while(it.hasNext())
+    {
+      QRegularExpressionMatch match = it.next();
+      const QString ident = match.captured(0);
+      resolvedValue += value.mid(last, match.capturedStart() - last);
+      resolvedValue += rawMacros.contains(ident) ? resolveMacro(ident) : ident;
+      last = match.capturedEnd();
+    }
+    resolvedValue += value.mid(last);
+
+    resolving.remove(name);
+    macros[name] = resolvedValue;
+    return resolvedValue;
+  };
+
+  for(const QString &name : rawMacros.keys())
+    resolveMacro(name);
+
+  QSet<QString> codeReferencedMacros;
+  for(const QString &line : lines)
+  {
+    if(stripDirectiveRE.match(line).hasMatch())
+      continue;
+
+    QRegularExpressionMatchIterator it = stripIdentifierRE.globalMatch(line);
+    while(it.hasNext())
+    {
+      const QString ident = it.next().captured(0);
+      if(macros.contains(ident))
+        codeReferencedMacros.insert(ident);
+    }
+  }
+
+  QString output;
+  QVector<StripIfBlock> stack;
+  int definesRemoved = 0;
+  int staticBranchesEliminated = 0;
+  int dynamicBranchesKept = 0;
+  int linesRemoved = 0;
+  int outputLines = 0;
+
+  auto appendLine = [&](const QString &line) {
+    output += line;
+    outputLines++;
+  };
+
+  for(int lineIdx = 0; lineIdx < lines.count(); lineIdx++)
+  {
+    const QString &line = lines[lineIdx];
+
+    if(defineLines.contains(lineIdx))
+    {
+      const QString macroName = defineLineToName.value(lineIdx);
+      if(keepDefines || codeReferencedMacros.contains(macroName))
+      {
+        if(StripOutputActive(stack))
+          appendLine(line);
+        else
+          linesRemoved++;
+      }
+      else
+      {
+        definesRemoved++;
+        linesRemoved++;
+      }
+      continue;
+    }
+
+    QRegularExpressionMatch matchIf = stripIfRE.match(line);
+    QRegularExpressionMatch matchIfdef;
+    QRegularExpressionMatch matchIfndef;
+    if(!matchIf.hasMatch())
+      matchIfdef = stripIfdefRE.match(line);
+    if(!matchIf.hasMatch() && !matchIfdef.hasMatch())
+      matchIfndef = stripIfndefRE.match(line);
+
+    if(matchIf.hasMatch() || matchIfdef.hasMatch() || matchIfndef.hasMatch())
+    {
+      StaticBranchEval result;
+      if(matchIf.hasMatch())
+        result = EvalStripCondition(matchIf.captured(1), macros);
+      else if(matchIfdef.hasMatch())
+        result = {true, macros.contains(matchIfdef.captured(1))};
+      else
+        result = {true, !macros.contains(matchIfndef.captured(1))};
+
+      if(result.isStatic && StripOutputActive(stack) && !StripInDynamicBlock(stack))
+      {
+        staticBranchesEliminated++;
+        stack.push_back({true, result.value, result.value});
+      }
+      else
+      {
+        dynamicBranchesKept++;
+        stack.push_back({false, false, false});
+        if(StripOutputActive(stack))
+          appendLine(line);
+        else
+          linesRemoved++;
+      }
+      continue;
+    }
+
+    QRegularExpressionMatch matchElif = stripElifRE.match(line);
+    if(matchElif.hasMatch())
+    {
+      if(stack.isEmpty())
+      {
+        appendLine(line);
+        continue;
+      }
+
+      StripIfBlock &block = stack.back();
+      if(block.isStatic)
+      {
+        if(block.foundTrueBranch)
+        {
+          block.conditionValue = false;
+        }
+        else if(StripParentActive(stack, stack.count() - 1))
+        {
+          StaticBranchEval result = EvalStripCondition(matchElif.captured(1), macros);
+          if(result.isStatic)
+          {
+            block.conditionValue = result.value;
+            if(result.value)
+              block.foundTrueBranch = true;
+          }
+          else
+          {
+            block.isStatic = false;
+            block.conditionValue = false;
+            appendLine(line);
+          }
+        }
+        else
+        {
+          block.conditionValue = false;
+        }
+      }
+      else
+      {
+        if(StripParentActive(stack, stack.count() - 1))
+          appendLine(line);
+        else
+          linesRemoved++;
+      }
+      continue;
+    }
+
+    if(stripElseRE.match(line).hasMatch())
+    {
+      if(stack.isEmpty())
+      {
+        appendLine(line);
+        continue;
+      }
+
+      StripIfBlock &block = stack.back();
+      if(block.isStatic)
+      {
+        block.conditionValue = !block.foundTrueBranch;
+        block.foundTrueBranch = true;
+      }
+      else
+      {
+        if(StripParentActive(stack, stack.count() - 1))
+          appendLine(line);
+        else
+          linesRemoved++;
+      }
+      continue;
+    }
+
+    if(stripEndifRE.match(line).hasMatch())
+    {
+      if(stack.isEmpty())
+      {
+        appendLine(line);
+        continue;
+      }
+
+      StripIfBlock block = stack.back();
+      stack.pop_back();
+      if(!block.isStatic)
+      {
+        if(StripOutputActive(stack))
+          appendLine(line);
+        else
+          linesRemoved++;
+      }
+      continue;
+    }
+
+    if(StripOutputActive(stack))
+      appendLine(line);
+    else
+      linesRemoved++;
+  }
+
+  if(report)
+  {
+    *report = tr("Static shader branch stripping complete.\n\n"
+                 "Input lines: %1\n"
+                 "Output lines: %2\n"
+                 "Removed #define lines: %3\n"
+                 "Eliminated static branches: %4\n"
+                 "Kept dynamic branches: %5\n"
+                 "Removed total lines: %6")
+                  .arg(lines.count())
+                  .arg(outputLines)
+                  .arg(definesRemoved)
+                  .arg(staticBranchesEliminated)
+                  .arg(dynamicBranchesKept)
+                  .arg(linesRemoved);
+  }
+
+  return output;
+}
+
+void ShaderViewer::on_stripBranches_clicked()
+{
+  ScintillaEdit *scintilla = currentScintilla();
+  if(!scintilla || !m_Scintillas.contains(scintilla))
+    return;
+
+  QString source = QString::fromUtf8(scintilla->getText(scintilla->textLength() + 1));
+  QString report;
+  QString stripped = StripStaticShaderBranches(source, ui->stripKeepDefines->isChecked(), &report);
+
+  if(stripped == source)
+  {
+    ShowErrors(report + tr("\n\nNo changes were made."));
+    return;
+  }
+
+  scintilla->selectAll();
+  scintilla->replaceSel(stripped.toUtf8().data());
+  scintilla->setSelection(0, 0);
+
+  MarkModification();
+  ShowErrors(report);
 }
 
 void ShaderViewer::snippet_constants()

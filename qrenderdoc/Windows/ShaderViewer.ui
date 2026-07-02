@@ -433,6 +433,39 @@
      </widget>
     </item>
     <item>
+     <widget class="QToolButton" name="stripBranches">
+      <property name="toolTip">
+       <string>Strip statically disabled shader branches from the current file</string>
+      </property>
+      <property name="text">
+       <string>Strip Branches</string>
+      </property>
+      <property name="icon">
+       <iconset resource="../Resources/resources.qrc">
+        <normaloff>:/wand.png</normaloff>:/wand.png</iconset>
+      </property>
+      <property name="toolButtonStyle">
+       <enum>Qt::ToolButtonTextBesideIcon</enum>
+      </property>
+      <property name="autoRaise">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QCheckBox" name="stripKeepDefines">
+      <property name="toolTip">
+       <string>Keep original #define macro lines when stripping branches</string>
+      </property>
+      <property name="text">
+       <string>Keep macros</string>
+      </property>
+      <property name="checked">
+       <bool>false</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
      <widget class="QLabel" name="editStatusLabel">
       <property name="toolTip">
        <string>The replay currently has the original shader active</string>
