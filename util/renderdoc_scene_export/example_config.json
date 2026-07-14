@@ -1,0 +1,39 @@
+{
+  "pass": {
+    "colourTargetCount": 6,
+    "requireDepth": true
+  },
+  "camera": {
+    "candidateDraws": 24,
+    "sampleVertices": 64,
+    "fitTolerance": 0.0002,
+    "minimumCrossValidationDraws": 2
+  },
+  "attributes": {
+    "shaderOverrides": {
+      "61885": {
+        "normalOutput": 1
+      }
+    }
+  },
+  "materials": {
+    "diffuseTextureSlot": 0,
+    "shaderOverrides": {
+      "61886": {
+        "diffuseTextureSlot": 1
+      }
+    }
+  },
+  "textures": {
+    "stages": [
+      "Vertex",
+      "Pixel"
+    ],
+    "allSlices": false
+  },
+  "blender": {
+    "flipV": true,
+    "scale": 1.0,
+    "perDrawFbx": true
+  }
+}

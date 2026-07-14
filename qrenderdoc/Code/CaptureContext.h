@@ -51,6 +51,8 @@ class CommentView;
 class PerformanceCounterViewer;
 class StatisticsViewer;
 class TAPerformanceViewer;
+class TACBufferWatch;
+class TAPassDrawDiff;
 class TimelineBar;
 class PythonShell;
 class ResourceInspector;
@@ -225,6 +227,8 @@ public:
   IPerformanceCounterViewer *GetPerformanceCounterViewer() override;
   IStatisticsViewer *GetStatisticsViewer() override;
   TAPerformanceViewer *GetTAPerformanceViewer();
+  TACBufferWatch *GetTACBufferWatch();
+  TAPassDrawDiff *GetTAPassDrawDiff();
   ITimelineBar *GetTimelineBar() override;
   IPythonShell *GetPythonShell() override;
   IResourceInspector *GetResourceInspector() override;
@@ -242,6 +246,8 @@ public:
   bool HasPerformanceCounterViewer() override { return m_PerformanceCounterViewer != NULL; }
   bool HasStatisticsViewer() override { return m_StatisticsViewer != NULL; }
   bool HasTAPerformanceViewer() { return m_TAPerformanceViewer != NULL; }
+  bool HasTACBufferWatch() { return m_TACBufferWatch != NULL; }
+  bool HasTAPassDrawDiff() { return m_TAPassDrawDiff != NULL; }
   bool HasTimelineBar() override { return m_TimelineBar != NULL; }
   bool HasPythonShell() override { return m_PythonShell != NULL; }
   bool HasResourceInspector() override { return m_ResourceInspector != NULL; }
@@ -453,6 +459,8 @@ private:
   PerformanceCounterViewer *m_PerformanceCounterViewer = NULL;
   StatisticsViewer *m_StatisticsViewer = NULL;
   TAPerformanceViewer *m_TAPerformanceViewer = NULL;
+  TACBufferWatch *m_TACBufferWatch = NULL;
+  TAPassDrawDiff *m_TAPassDrawDiff = NULL;
   TimelineBar *m_TimelineBar = NULL;
   PythonShell *m_PythonShell = NULL;
   ResourceInspector *m_ResourceInspector = NULL;

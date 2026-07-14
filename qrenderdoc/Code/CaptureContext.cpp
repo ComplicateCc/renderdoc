@@ -59,6 +59,8 @@
 #include "Windows/ShaderMessageViewer.h"
 #include "Windows/ShaderViewer.h"
 #include "Windows/StatisticsViewer.h"
+#include "Windows/TACBufferWatch.h"
+#include "Windows/TAPassDrawDiff.h"
 #include "Windows/TAPerformanceViewer.h"
 #include "Windows/TextureViewer.h"
 #include "Windows/TimelineBar.h"
@@ -2397,6 +2399,30 @@ IStatisticsViewer *CaptureContext::GetStatisticsViewer()
   return m_StatisticsViewer;
 }
 
+TAPassDrawDiff *CaptureContext::GetTAPassDrawDiff()
+{
+  if(m_TAPassDrawDiff)
+    return m_TAPassDrawDiff;
+
+  m_TAPassDrawDiff = new TAPassDrawDiff(*this, m_MainWindow);
+  m_TAPassDrawDiff->setObjectName(lit("taPassDrawDiff"));
+  setupDockWindow(m_TAPassDrawDiff, true);
+
+  return m_TAPassDrawDiff;
+}
+
+TACBufferWatch *CaptureContext::GetTACBufferWatch()
+{
+  if(m_TACBufferWatch)
+    return m_TACBufferWatch;
+
+  m_TACBufferWatch = new TACBufferWatch(*this, m_MainWindow);
+  m_TACBufferWatch->setObjectName(lit("taCBufferWatch"));
+  setupDockWindow(m_TACBufferWatch, true);
+
+  return m_TACBufferWatch;
+}
+
 TAPerformanceViewer *CaptureContext::GetTAPerformanceViewer()
 {
   if(m_TAPerformanceViewer)
@@ -2766,6 +2792,14 @@ QWidget *CaptureContext::CreateBuiltinWindow(const rdcstr &objectName)
   {
     return GetTAPerformanceViewer()->Widget();
   }
+  else if(objectName == "taCBufferWatch")
+  {
+    return GetTACBufferWatch()->Widget();
+  }
+  else if(objectName == "taPassDrawDiff")
+  {
+    return GetTAPassDrawDiff()->Widget();
+  }
 
   return NULL;
 }
@@ -2802,6 +2836,10 @@ void CaptureContext::BuiltinWindowClosed(QWidget *window)
     m_PerformanceCounterViewer = NULL;
   else if(m_TAPerformanceViewer && m_TAPerformanceViewer->Widget() == window)
     m_TAPerformanceViewer = NULL;
+  else if(m_TACBufferWatch && m_TACBufferWatch->Widget() == window)
+    m_TACBufferWatch = NULL;
+  else if(m_TAPassDrawDiff && m_TAPassDrawDiff->Widget() == window)
+    m_TAPassDrawDiff = NULL;
   else
     qCritical() << "Unrecognised window being closed: " << window;
 }

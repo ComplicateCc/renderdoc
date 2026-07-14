@@ -2643,6 +2643,26 @@ void MainWindow::on_action_TA_Performance_Viewer_triggered()
     ui->toolWindowManager->addToolWindow(viewer, mainToolArea());
 }
 
+void MainWindow::on_action_TA_CBuffer_Watch_triggered()
+{
+  QWidget *viewer = m_Ctx.CreateBuiltinWindow(lit("taCBufferWatch"));
+
+  if(ui->toolWindowManager->toolWindows().contains(viewer))
+    ToolWindowManager::raiseToolWindow(viewer);
+  else
+    ui->toolWindowManager->addToolWindow(viewer, mainToolArea());
+}
+
+void MainWindow::on_action_TA_Pass_Draw_Diff_triggered()
+{
+  QWidget *viewer = m_Ctx.CreateBuiltinWindow(lit("taPassDrawDiff"));
+
+  if(ui->toolWindowManager->toolWindows().contains(viewer))
+    ToolWindowManager::raiseToolWindow(viewer);
+  else
+    ui->toolWindowManager->addToolWindow(viewer, mainToolArea());
+}
+
 void MainWindow::on_action_Timeline_triggered()
 {
   QWidget *stats = m_Ctx.GetTimelineBar()->Widget();

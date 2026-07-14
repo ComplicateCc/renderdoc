@@ -317,6 +317,23 @@
             <widget class="QComboBox" name="visualisation"/>
            </item>
            <item>
+            <widget class="QLabel" name="attributePreviewLabel">
+             <property name="text">
+              <string>Attribute</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="attributePreview">
+             <property name="toolTip">
+              <string>Preview a vertex attribute as the mesh secondary colour channel</string>
+             </property>
+             <property name="sizeAdjustPolicy">
+              <enum>QComboBox::AdjustToContents</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QToolButton" name="wireframeRender">
              <property name="enabled">
               <bool>true</bool>

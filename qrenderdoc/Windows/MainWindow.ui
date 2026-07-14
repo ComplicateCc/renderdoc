@@ -165,6 +165,8 @@
     <addaction name="action_Timeline"/>
     <addaction name="action_Statistics_Viewer"/>
     <addaction name="action_TA_Performance_Viewer"/>
+    <addaction name="action_TA_CBuffer_Watch"/>
+    <addaction name="action_TA_Pass_Draw_Diff"/>
     <addaction name="action_Counter_Viewer"/>
     <addaction name="action_Resource_Inspector"/>
     <addaction name="action_Comments"/>
@@ -422,6 +424,16 @@
   <action name="action_TA_Performance_Viewer">
    <property name="text">
     <string>TA &amp;Performance Viewer</string>
+   </property>
+  </action>
+  <action name="action_TA_CBuffer_Watch">
+   <property name="text">
+    <string>TA CBuffer &amp;Watch</string>
+   </property>
+  </action>
+  <action name="action_TA_Pass_Draw_Diff">
+   <property name="text">
+    <string>TA Pass/Draw &amp;Diff</string>
    </property>
   </action>
   <action name="action_Show_Tips">

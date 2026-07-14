@@ -2642,6 +2642,8 @@ BufferViewer::BufferViewer(ICaptureContext &ctx, bool meshview, QWidget *parent)
   ui->visualisation->adjustSize();
   ui->visualisation->setCurrentIndex(0);
 
+  ui->attributePreview->setEnabled(false);
+
   ui->axisMappingCombo->addItems({tr("Y-up, left handed"), tr("Y-up, right handed"),
                                   tr("Z-up, left handed"), tr("Z-up, right handed"), tr("Custom...")});
   ui->axisMappingCombo->setCurrentIndex(0);
@@ -2936,6 +2938,7 @@ void BufferViewer::SetupMeshView()
     model->setSecondaryColumn(-1, m_Config.visualisationMode == Visualisation::Secondary, false);
 
     UI_ConfigureFormats();
+    configureAttributePreview();
     on_resetCamera_clicked();
     UpdateCurrentMeshConfig();
     INVOKE_MEMFN(RT_UpdateAndDisplay);
@@ -2946,6 +2949,7 @@ void BufferViewer::SetupMeshView()
     model->setPosColumn(m_ContextColumn);
 
     UI_ConfigureFormats();
+    configureAttributePreview();
     on_resetCamera_clicked();
     UpdateCurrentMeshConfig();
     INVOKE_MEMFN(RT_UpdateAndDisplay);
@@ -2957,6 +2961,7 @@ void BufferViewer::SetupMeshView()
                               m_Config.visualisationMode == Visualisation::Secondary, false);
 
     UI_ConfigureFormats();
+    configureAttributePreview();
     UpdateCurrentMeshConfig();
     INVOKE_MEMFN(RT_UpdateAndDisplay);
   });
@@ -2966,6 +2971,7 @@ void BufferViewer::SetupMeshView()
     model->setSecondaryColumn(m_ContextColumn,
                               m_Config.visualisationMode == Visualisation::Secondary, true);
     UI_ConfigureFormats();
+    configureAttributePreview();
     UpdateCurrentMeshConfig();
     INVOKE_MEMFN(RT_UpdateAndDisplay);
   });
@@ -3859,6 +3865,7 @@ void BufferViewer::OnEventChanged(uint32_t eventId)
       populateBBox(bufdata);
 
       UI_ConfigureFormats();
+      configureAttributePreview();
       UpdateCurrentMeshConfig();
 
       ApplyRowAndColumnDims(
@@ -5093,9 +5100,11 @@ void BufferViewer::UI_ConfigureVertexPipeFormats()
 
       if(elIdx >= 0 && elIdx < out1Config.columns.count())
       {
+        const BufferElementProperties &secondaryProp = out1Config.props[elIdx];
+
         m_Out1Secondary = m_Out1Data;
         m_Out1Secondary.vertexByteOffset += out1Config.columns[elIdx].byteOffset;
-        m_Out1Secondary.format = prop.format;
+        m_Out1Secondary.format = secondaryProp.format;
         m_Out1Secondary.showAlpha = m_ModelOut1->secondaryAlpha();
       }
     }
@@ -5125,8 +5134,11 @@ void BufferViewer::UI_ConfigureVertexPipeFormats()
 
       if(elIdx >= 0 && elIdx < out2Config.columns.count())
       {
+        const BufferElementProperties &secondaryProp = out2Config.props[elIdx];
+
         m_Out2Secondary = m_Out2Data;
         m_Out2Secondary.vertexByteOffset += out2Config.columns[elIdx].byteOffset;
+        m_Out2Secondary.format = secondaryProp.format;
         m_Out2Secondary.showAlpha = m_ModelOut2->secondaryAlpha();
       }
     }
@@ -5187,8 +5199,11 @@ void BufferViewer::UI_ConfigureMeshPipeFormats()
 
     if(elIdx >= 0 && elIdx < out2Config.columns.count())
     {
+      const BufferElementProperties &secondaryProp = out2Config.props[elIdx];
+
       m_Out2Secondary = m_Out2Data;
       m_Out2Secondary.vertexByteOffset += out2Config.columns[elIdx].byteOffset;
+      m_Out2Secondary.format = secondaryProp.format;
       m_Out2Secondary.showAlpha = m_ModelOut2->secondaryAlpha();
     }
   }
@@ -5228,6 +5243,68 @@ void BufferViewer::configureDrawRange()
   m_Config.showPrevInstances = (curIndex >= 1);
   m_Config.showAllInstances = (curIndex >= 2);
   m_Config.showWholePass = (curIndex >= 3);
+}
+
+void BufferViewer::configureAttributePreview()
+{
+  if(!m_MeshView)
+    return;
+
+  RDTableView *view = currentTable();
+  BufferItemModel *model = currentBufferModel();
+
+  m_UpdatingAttributePreview = true;
+
+  ui->attributePreview->clear();
+
+  if(!view || !model || m_CurStage == MeshDataStage::TaskOut)
+  {
+    ui->attributePreview->addItem(tr("N/A"), -1);
+    ui->attributePreview->setEnabled(false);
+    m_UpdatingAttributePreview = false;
+    return;
+  }
+
+  const BufferConfiguration &config = model->getConfig();
+  const int secondary = model->secondaryColumn();
+  int selectedIndex = -1;
+
+  ui->attributePreview->addItem(tr("Auto"), -1);
+
+  for(int i = 0; i < config.columns.count(); i++)
+  {
+    const ShaderConstant &el = config.columns[i];
+    const BufferElementProperties &prop = config.props[i];
+
+    if(prop.perprimitive)
+      continue;
+
+    QString name = config.columnName(i);
+    if(name.isEmpty())
+      name = tr("Attribute %1").arg(i);
+
+    ui->attributePreview->addItem(name, i);
+
+    if(i == secondary)
+      selectedIndex = ui->attributePreview->count() - 1;
+
+    if(el.type.columns == 4)
+    {
+      ui->attributePreview->addItem(tr("%1 Alpha").arg(name), QVariant(-(i + 2)));
+
+      if(i == secondary && model->secondaryAlpha())
+        selectedIndex = ui->attributePreview->count() - 1;
+    }
+  }
+
+  ui->attributePreview->setEnabled(ui->attributePreview->count() > 1);
+
+  if(selectedIndex < 0)
+    selectedIndex = 0;
+
+  ui->attributePreview->setCurrentIndex(selectedIndex);
+
+  m_UpdatingAttributePreview = false;
 }
 
 void BufferViewer::ApplyRowAndColumnDims(int numColumns, RDTableView *view, int dataColWidth)
@@ -7431,6 +7508,8 @@ void BufferViewer::on_outputTabs_currentChanged(int index)
 
   UpdateCurrentMeshConfig();
 
+  configureAttributePreview();
+
   INVOKE_MEMFN(RT_UpdateAndDisplay);
 }
 
@@ -7541,6 +7620,35 @@ void BufferViewer::on_visualisation_currentIndexChanged(int index)
   m_ModelOut2->setSecondaryColumn(m_ModelOut2->secondaryColumn(),
                                   m_Config.visualisationMode == Visualisation::Secondary,
                                   m_ModelOut2->secondaryAlpha());
+
+  INVOKE_MEMFN(RT_UpdateAndDisplay);
+}
+
+void BufferViewer::on_attributePreview_currentIndexChanged(int index)
+{
+  if(m_UpdatingAttributePreview)
+    return;
+
+  BufferItemModel *model = currentBufferModel();
+  if(!model)
+    return;
+
+  int attributeIndex = ui->attributePreview->itemData(index).toInt();
+  bool alpha = false;
+
+  if(attributeIndex <= -2)
+  {
+    attributeIndex = -attributeIndex - 2;
+    alpha = true;
+  }
+
+  model->setSecondaryColumn(attributeIndex, true, alpha);
+
+  if(ui->visualisation->currentIndex() != (int)Visualisation::Secondary)
+    ui->visualisation->setCurrentIndex((int)Visualisation::Secondary);
+
+  UI_ConfigureFormats();
+  UpdateCurrentMeshConfig();
 
   INVOKE_MEMFN(RT_UpdateAndDisplay);
 }

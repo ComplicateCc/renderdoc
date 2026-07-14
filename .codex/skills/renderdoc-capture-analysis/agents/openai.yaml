@@ -1,0 +1,4 @@
+interface:
+  display_name: "RenderDoc Capture Analysis"
+  short_description: "Replay evidence-based terrain and draw-call analysis"
+  default_prompt: "Analyze this RenderDoc capture draw call and produce verified world-space distance and bounds evidence."

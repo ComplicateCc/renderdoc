@@ -68,3 +68,13 @@ TA Performance Viewer 使用说明见：
 ```text
 docs/ta_performance_viewer.md
 ```
+
+## RenderDoc Capture Analysis
+
+分析 `.rdc` 截帧、drawcall、shader、pipeline、CBuffer、post-VS 网格、地形世界坐标、距离或边界时，先阅读：
+
+```text
+.codex/skills/renderdoc-capture-analysis/SKILL.md
+```
+
+需要给出可复核结论时，必须保存 action、descriptor resource/absolute byte offset、raw CBuffer bytes、post-VS resource/index data、矩阵回代误差和最终统计。除非捕获或游戏资料明确单位比例，不要将 capture world coordinate units 直接声称为米。

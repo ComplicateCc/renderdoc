@@ -135,6 +135,7 @@ private slots:
   void on_exploderScale_valueChanged(double value);
   void on_wireframeRender_toggled(bool checked);
   void on_visualisation_currentIndexChanged(int index);
+  void on_attributePreview_currentIndexChanged(int index);
   void on_drawRange_currentIndexChanged(int index);
   void on_controlType_currentIndexChanged(int index);
   void on_camSpeed_valueChanged(double value);
@@ -186,6 +187,7 @@ private:
   void updateLabelsAndLayout();
 
   void configureDrawRange();
+  void configureAttributePreview();
 
   void UI_UpdateGuessParameters();
   void RT_UpdateAndDisplay(IReplayController *r);
@@ -196,6 +198,8 @@ private:
   MeshDisplay m_Config;
 
   MeshDataStage m_CurStage;
+
+  bool m_UpdatingAttributePreview = false;
 
   // cached data from PostVS data
   MeshFormat m_Out1Data, m_Out2Data;
