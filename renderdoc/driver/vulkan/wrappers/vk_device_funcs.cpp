@@ -42,6 +42,14 @@ RDOC_CONFIG(
 RDOC_CONFIG(bool, Vulkan_Debug_EnableGPUVA, false,
             "Enable GPU Validation when enabling Vulkan validation.");
 
+RDOC_CONFIG(bool, Vulkan_Replay_EmulateFragmentDensityMap, false,
+            "Replay without fragment density map functionality when the replay device does not "
+            "support VK_EXT_fragment_density_map. Rendering may differ from the capture.");
+
+RDOC_CONFIG(bool, Vulkan_Replay_AllowUnsupportedFeatures, false,
+            "Disable captured Vulkan device features that are unavailable on the replay device. "
+            "This is intended for best-effort data export and may produce incorrect rendering.");
+
 // intercept and overwrite the application info if present. We must use the same appinfo on
 // capture and replay, and the safer default is not to replay as if we were the original app but
 // with a slightly different workload. So instead we trample what the app reported and put in our
@@ -218,6 +226,14 @@ static void StripUnwantedExtensions(rdcarray<rdcstr> &Extensions)
 
     // these are debug only and will be added (if supported) as optional
     if(ext == "VK_EXT_debug_utils" || ext == "VK_EXT_debug_marker")
+      return true;
+
+    if(Vulkan_Replay_EmulateFragmentDensityMap() &&
+       (ext == VK_EXT_FRAGMENT_DENSITY_MAP_EXTENSION_NAME ||
+        ext == VK_EXT_FRAGMENT_DENSITY_MAP_2_EXTENSION_NAME ||
+        ext == VK_EXT_FRAGMENT_DENSITY_MAP_OFFSET_EXTENSION_NAME ||
+        ext == VK_QCOM_FRAGMENT_DENSITY_MAP_OFFSET_EXTENSION_NAME ||
+        ext == VK_VALVE_FRAGMENT_DENSITY_MAP_LAYERED_EXTENSION_NAME))
       return true;
 
     return false;
@@ -2263,6 +2279,21 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
       RDCLOG("Removed VK_KHR_present_id/wait/latest_ready structs from vkCreateDevice pNext chain");
     }
 
+    if(Vulkan_Replay_EmulateFragmentDensityMap())
+    {
+      bool fragmentDensity = false;
+      fragmentDensity |= RemoveNextStruct(
+          &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_FEATURES_EXT);
+      fragmentDensity |= RemoveNextStruct(
+          &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_2_FEATURES_EXT);
+      fragmentDensity |= RemoveNextStruct(
+          &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_OFFSET_FEATURES_EXT);
+      fragmentDensity |= RemoveNextStruct(
+          &createInfo, VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_DENSITY_MAP_LAYERED_FEATURES_VALVE);
+      if(fragmentDensity)
+        RDCWARN("Removed fragment density map features for compatibility replay");
+    }
+
     VkPhysicalDeviceFeatures enabledFeatures = {0};
     if(createInfo.pEnabledFeatures != NULL)
       enabledFeatures = *createInfo.pEnabledFeatures;
@@ -2279,14 +2310,22 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
     VkPhysicalDeviceFeatures availFeatures = {0};
     ObjDisp(physicalDevice)->GetPhysicalDeviceFeatures(Unwrap(physicalDevice), &availFeatures);
 
-#define CHECK_PHYS_FEATURE(feature)                                            \
-  if(enabledFeatures.feature && !availFeatures.feature)                        \
-  {                                                                            \
-    SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported, \
-                     "Capture requires physical device feature '" #feature     \
-                     "' which is not supported\n\n%s",                         \
-                     GetPhysDeviceCompatString(false, false).c_str());         \
-    return false;                                                              \
+#define CHECK_PHYS_FEATURE(feature)                                                 \
+  if(enabledFeatures.feature && !availFeatures.feature)                             \
+  {                                                                                 \
+    if(Vulkan_Replay_AllowUnsupportedFeatures())                                    \
+    {                                                                               \
+      RDCWARN("Disabling unsupported captured feature '" #feature "'");             \
+      enabledFeatures.feature = VK_FALSE;                                           \
+    }                                                                               \
+    else                                                                            \
+    {                                                                               \
+      SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,    \
+                       "Capture requires physical device feature '" #feature        \
+                       "' which is not supported\n\n%s",                            \
+                       GetPhysDeviceCompatString(false, false).c_str());            \
+      return false;                                                                 \
+    }                                                                               \
   }
 
     CHECK_PHYS_FEATURE(robustBufferAccess);
@@ -2356,14 +2395,23 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
 
 #define END_PHYS_EXT_CHECK() }
 
-#define CHECK_PHYS_EXT_FEATURE(feature)                                            \
-  if(ext->feature && !avail.feature)                                               \
-  {                                                                                \
-    SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,     \
-                     "Capture requires physical device feature '" #feature         \
-                     "' in struct '%s' which is not supported\n\n%s",              \
-                     structName, GetPhysDeviceCompatString(false, false).c_str()); \
-    return false;                                                                  \
+#define CHECK_PHYS_EXT_FEATURE(feature)                                               \
+  if(ext->feature && !avail.feature)                                                  \
+  {                                                                                   \
+    if(Vulkan_Replay_AllowUnsupportedFeatures())                                      \
+    {                                                                                 \
+      RDCWARN("Disabling unsupported captured feature '" #feature "' in %s",          \
+              structName);                                                            \
+      ext->feature = VK_FALSE;                                                        \
+    }                                                                                 \
+    else                                                                              \
+    {                                                                                 \
+      SET_ERROR_RESULT(m_FailedReplayResult, ResultCode::APIHardwareUnsupported,      \
+                       "Capture requires physical device feature '" #feature          \
+                       "' in struct '%s' which is not supported\n\n%s",                \
+                       structName, GetPhysDeviceCompatString(false, false).c_str());   \
+      return false;                                                                   \
+    }                                                                                 \
   }
 
     VkPhysicalDeviceDescriptorIndexingFeatures descIndexingFeatures = {};

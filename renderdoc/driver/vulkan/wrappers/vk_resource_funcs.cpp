@@ -27,6 +27,8 @@
 #include "../vk_debug.h"
 #include "core/settings.h"
 
+RDOC_EXTERN_CONFIG(bool, Vulkan_Replay_AllowUnsupportedFeatures);
+
 RDOC_CONFIG(bool, Vulkan_GPUReadbackDeviceLocal, true,
             "When reading back mapped device-local memory, use a GPU copy "
             "instead of a CPU side comparison directly to mapped memory.");
@@ -298,6 +300,23 @@ bool WrappedVulkan::Serialise_vkAllocateMemory(SerialiserType &ser, VkDevice dev
   if(IsReplayingAndReading())
   {
     VkDeviceMemory mem = VK_NULL_HANDLE;
+
+    if(AllocateInfo.memoryTypeIndex >= m_PhysicalDeviceData.memProps.memoryTypeCount &&
+       Vulkan_Replay_AllowUnsupportedFeatures() &&
+       m_PhysicalDeviceData.memProps.memoryTypeCount > 0)
+    {
+      RDCWARN("Remapping captured memory type %u to replay memory type 0",
+              AllocateInfo.memoryTypeIndex);
+      AllocateInfo.memoryTypeIndex = 0;
+    }
+
+    if(Vulkan_Replay_AllowUnsupportedFeatures())
+    {
+      const VkDeviceSize originalSize = AllocateInfo.allocationSize;
+      AllocateInfo.allocationSize = RDCMAX(originalSize, originalSize * VkDeviceSize(8));
+      RDCDEBUG("Expanded replay memory allocation from 0x%llx to 0x%llx",
+               originalSize, AllocateInfo.allocationSize);
+    }
 
     VkMemoryAllocateInfo patched = AllocateInfo;
 
