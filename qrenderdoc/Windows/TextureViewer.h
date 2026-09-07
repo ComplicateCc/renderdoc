@@ -252,6 +252,7 @@ private slots:
 protected:
   void enterEvent(QEvent *event) override;
   void showEvent(QShowEvent *event) override;
+  bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
   void RT_FetchCurrentPixel(IReplayController *r, uint32_t x, uint32_t y, PixelValue &pickValue,

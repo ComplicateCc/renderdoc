@@ -477,11 +477,13 @@ class UVOverlayWidget : public QWidget
 public:
   explicit UVOverlayWidget(QWidget *parent) : QWidget(parent)
   {
+    setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
     setAttribute(Qt::WA_TransparentForMouseEvents);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_NoSystemBackground);
     setAttribute(Qt::WA_NativeWindow);
     setAutoFillBackground(false);
+    setFocusPolicy(Qt::NoFocus);
 
     QString error;
     SetFormula(lit("uv.x, uv.y"), error);
@@ -528,6 +530,9 @@ protected:
   void paintEvent(QPaintEvent *) override
   {
     QPainter painter(this);
+    painter.setCompositionMode(QPainter::CompositionMode_Source);
+    painter.fillRect(rect(), Qt::transparent);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
     if(m_TransformedVertices.empty() || m_Data.indices.empty() || m_TextureSize.isEmpty() ||
        m_Scale <= 0.0f)
       return;
@@ -1486,8 +1491,7 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   uvLayout->addWidget(m_UVPreviewToggle);
   flow2->addWidget(m_UVToolbar);
 
-  m_UVOverlay = new UVOverlayWidget(ui->render);
-  m_UVOverlay->setGeometry(ui->render->rect());
+  m_UVOverlay = new UVOverlayWidget(NULL);
   m_UVOverlay->hide();
 
   QObject::connect(m_UVPreviewToggle, &QToolButton::toggled, this,
@@ -1498,6 +1502,7 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   QObject::connect(ui->render, &CustomPaintWidget::resize, [this](QResizeEvent *) {
     UI_UpdateUVOverlayDisplay();
   });
+  ui->render->installEventFilter(this);
   UI_UpdateUVChannels();
 
   vertical->addWidget(flow1widget);
@@ -1594,6 +1599,7 @@ TextureViewer::~TextureViewer()
 
   m_Ctx.BuiltinWindowClosed(this);
   m_Ctx.RemoveCaptureViewer(this);
+  delete m_UVOverlay;
   delete ui;
 }
 
@@ -1605,6 +1611,24 @@ void TextureViewer::enterEvent(QEvent *event)
 void TextureViewer::showEvent(QShowEvent *event)
 {
   HighlightUsage();
+}
+
+bool TextureViewer::eventFilter(QObject *watched, QEvent *event)
+{
+  if(watched == ui->render && m_UVOverlay != NULL)
+  {
+    if(event->type() == QEvent::Move || event->type() == QEvent::Resize ||
+       event->type() == QEvent::Show)
+    {
+      UI_UpdateUVOverlayDisplay();
+    }
+    else if(event->type() == QEvent::Hide)
+    {
+      m_UVOverlay->hide();
+    }
+  }
+
+  return QFrame::eventFilter(watched, event);
 }
 
 void TextureViewer::HighlightUsage()
@@ -2946,19 +2970,31 @@ void TextureViewer::UI_UpdateUVOverlayDisplay()
   if(m_UVOverlay == NULL)
     return;
 
-  m_UVOverlay->setGeometry(ui->render->rect());
+  if(!ui->render->isVisible())
+  {
+    m_UVOverlay->hide();
+    return;
+  }
+
+  m_UVOverlay->setGeometry(QRect(ui->render->mapToGlobal(QPoint(0, 0)), ui->render->size()));
 
   TextureDescription *texture = GetCurrentTexture();
   if(texture == NULL || texture->resourceId != m_TexDisplay.resourceId)
   {
     m_UVOverlay->SetTextureDisplay(m_TexDisplay, QSize(), ui->render->devicePixelRatioF());
-    return;
+  }
+  else
+  {
+    const uint32_t mip = m_TexDisplay.subresource.mip;
+    const QSize size(qMax(1U, texture->width >> mip), qMax(1U, texture->height >> mip));
+    m_UVOverlay->SetTextureDisplay(m_TexDisplay, size, ui->render->devicePixelRatioF());
   }
 
-  const uint32_t mip = m_TexDisplay.subresource.mip;
-  const QSize size(qMax(1U, texture->width >> mip), qMax(1U, texture->height >> mip));
-  m_UVOverlay->SetTextureDisplay(m_TexDisplay, size, ui->render->devicePixelRatioF());
-  m_UVOverlay->raise();
+  if(m_UVPreviewToggle != NULL && m_UVPreviewToggle->isChecked())
+  {
+    m_UVOverlay->show();
+    m_UVOverlay->raise();
+  }
 }
 
 void TextureViewer::SetupTextureTabs()
