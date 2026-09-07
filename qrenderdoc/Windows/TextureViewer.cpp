@@ -30,7 +30,6 @@
 #include <QComboBox>
 #include <QFileSystemWatcher>
 #include <QFontDatabase>
-#include <QImage>
 #include <QItemDelegate>
 #include <QJsonDocument>
 #include <QLineEdit>
@@ -470,19 +469,19 @@ struct UVPreviewData
   QVector<QPointF> vertices;
   rdcarray<uint32_t> indices;
   Topology topology = Topology::Unknown;
-  QImage texture;
-  bool textureFlipY = false;
-  QString textureStatus;
   QString status;
 };
 
-class UVPreviewWidget : public QWidget
+class UVOverlayWidget : public QWidget
 {
 public:
-  explicit UVPreviewWidget(QWidget *parent) : QWidget(parent)
+  explicit UVOverlayWidget(QWidget *parent) : QWidget(parent)
   {
-    setMinimumSize(220, 180);
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_NoSystemBackground);
+    setAttribute(Qt::WA_NativeWindow);
+    setAutoFillBackground(false);
 
     QString error;
     SetFormula(lit("uv.x, uv.y"), error);
@@ -516,71 +515,33 @@ public:
     update();
   }
 
+  void SetTextureDisplay(const TextureDisplay &display, QSize textureSize, qreal pixelRatio)
+  {
+    m_TextureSize = textureSize;
+    m_Offset = QPointF(display.xOffset / pixelRatio, display.yOffset / pixelRatio);
+    m_Scale = display.scale / pixelRatio;
+    m_FlipY = display.flipY;
+    update();
+  }
+
 protected:
   void paintEvent(QPaintEvent *) override
   {
     QPainter painter(this);
-    painter.fillRect(rect(), QColor(35, 35, 35));
-
-    const QRectF drawRect = rect().adjusted(28, 12, -12, -28);
-
-    if(m_TransformedVertices.empty() || m_Data.indices.empty())
-    {
-      painter.setPen(palette().color(QPalette::Disabled, QPalette::Text));
-      painter.drawText(drawRect, Qt::AlignCenter,
-                       StatusText().isEmpty() ? tr("No UV data available") : StatusText());
+    if(m_TransformedVertices.empty() || m_Data.indices.empty() || m_TextureSize.isEmpty() ||
+       m_Scale <= 0.0f)
       return;
-    }
 
-    double minX = 0.0, minY = 0.0, maxX = 1.0, maxY = 1.0;
-    for(const QPointF &uv : m_TransformedVertices)
-    {
-      if(qIsFinite(uv.x()) && qIsFinite(uv.y()))
-      {
-        minX = qMin(minX, uv.x());
-        minY = qMin(minY, uv.y());
-        maxX = qMax(maxX, uv.x());
-        maxY = qMax(maxY, uv.y());
-      }
-    }
-
-    const double width = qMax(1.0e-6, maxX - minX);
-    const double height = qMax(1.0e-6, maxY - minY);
-    const double scale = qMin(drawRect.width() / width, drawRect.height() / height);
-    const QPointF origin(drawRect.left() + (drawRect.width() - width * scale) * 0.5 - minX * scale,
-                         drawRect.top() + (drawRect.height() - height * scale) * 0.5 - minY * scale);
-
-    const auto map = [&origin, scale](const QPointF &uv) {
-      return QPointF(origin.x() + uv.x() * scale, origin.y() + uv.y() * scale);
+    const auto map = [this](const QPointF &uv) {
+      const qreal u = uv.x();
+      const qreal v = m_FlipY ? 1.0 - uv.y() : uv.y();
+      return QPointF(m_Offset.x() + u * m_TextureSize.width() * m_Scale,
+                     m_Offset.y() + v * m_TextureSize.height() * m_Scale);
     };
 
     painter.save();
-    painter.setClipRect(drawRect);
-
-    const QRectF textureRect = QRectF(map(QPointF(0.0, 0.0)), map(QPointF(1.0, 1.0))).normalized();
-    if(!m_Data.texture.isNull())
-    {
-      painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-      const QRectF source = m_Data.textureFlipY
-                                ? QRectF(0, m_Data.texture.height(), m_Data.texture.width(),
-                                         -m_Data.texture.height())
-                                : QRectF(0, 0, m_Data.texture.width(), m_Data.texture.height());
-      painter.drawImage(textureRect, m_Data.texture, source);
-      painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-    }
-
-    const int gridMinX = qMax(-64, int(floor(minX)));
-    const int gridMaxX = qMin(64, int(ceil(maxX)));
-    const int gridMinY = qMax(-64, int(floor(minY)));
-    const int gridMaxY = qMin(64, int(ceil(maxY)));
-    painter.setPen(QPen(QColor(85, 85, 85), 1.0));
-    for(int x = gridMinX; x <= gridMaxX; x++)
-      painter.drawLine(map(QPointF(x, minY)), map(QPointF(x, maxY)));
-    for(int y = gridMinY; y <= gridMaxY; y++)
-      painter.drawLine(map(QPointF(minX, y)), map(QPointF(maxX, y)));
-
-    painter.setPen(QPen(QColor(155, 155, 155), 1.0));
-    painter.drawRect(textureRect);
+    painter.setClipRect(rect());
+    painter.setRenderHint(QPainter::Antialiasing, true);
 
     const uint32_t invalidIndex = ~0U;
     const auto isValid = [this, invalidIndex](uint32_t index) {
@@ -717,10 +678,6 @@ protected:
     }
 
     painter.restore();
-    painter.setPen(palette().color(QPalette::Text));
-    painter.drawText(QRectF(4, this->height() - 22, this->width() - 8, 18),
-                     Qt::AlignLeft | Qt::AlignVCenter,
-                     StatusText());
   }
 
 private:
@@ -744,22 +701,15 @@ private:
     }
   }
 
-  QString StatusText() const
-  {
-    if(!m_FormulaError.isEmpty())
-      return tr("Formula error: %1").arg(m_FormulaError);
-    if(m_Data.textureStatus.isEmpty())
-      return m_Data.status;
-    if(m_Data.status.isEmpty())
-      return m_Data.textureStatus;
-    return m_Data.status + lit("  |  ") + m_Data.textureStatus;
-  }
-
   UVPreviewData m_Data;
   QVector<QPointF> m_TransformedVertices;
   UVExpression m_UExpression;
   UVExpression m_VExpression;
   QString m_FormulaError;
+  QSize m_TextureSize;
+  QPointF m_Offset;
+  qreal m_Scale = 0.0;
+  bool m_FlipY = false;
 };
 
 static UVPreviewData FetchUVPreview(IReplayController *r, const VertexInputAttribute &attribute,
@@ -910,94 +860,6 @@ static UVPreviewData FetchUVPreview(IReplayController *r, const VertexInputAttri
                     ? QObject::tr("Showing the first %1 of %2 indices").arg(previewIndices).arg(numIndices)
                     : QObject::tr("%1 indices").arg(previewIndices);
   return data;
-}
-
-static void FetchUVTexturePreview(IReplayController *r, const TextureDescription &texture,
-                                  const TextureDisplay &display, bool flipY, UVPreviewData &preview)
-{
-  static const uint64_t MaxTextureReadBytes = 64ULL * 1024ULL * 1024ULL;
-  static const uint32_t MaxTexturePreviewDimension = 1024;
-
-  const Subresource subresource = display.subresource;
-  const uint32_t width = qMax(1U, texture.width >> subresource.mip);
-  const uint32_t height = qMax(1U, texture.height >> subresource.mip);
-  const uint32_t elementSize = texture.format.ElementSize();
-
-  if(texture.dimension != 2 || texture.format.BlockFormat() || elementSize == 0)
-  {
-    preview.textureStatus = QObject::tr("Texture background is unavailable for this format");
-    return;
-  }
-
-  const uint64_t sourceSize = uint64_t(width) * height * elementSize;
-  if(sourceSize > MaxTextureReadBytes)
-  {
-    preview.textureStatus = QObject::tr("Texture background is larger than the 64 MiB preview limit");
-    return;
-  }
-
-  bytebuf source = r->GetTextureData(texture.resourceId, subresource);
-  if(source.size() < sourceSize)
-  {
-    preview.textureStatus = QObject::tr("Could not read the selected texture subresource");
-    return;
-  }
-
-  const uint32_t imageWidth = qMin(width, MaxTexturePreviewDimension);
-  const uint32_t imageHeight = qMin(height, MaxTexturePreviewDimension);
-  QImage image(int(imageWidth), int(imageHeight), QImage::Format_ARGB32);
-
-  ShaderConstant componentType;
-  componentType.type.rows = 1;
-  componentType.type.columns = texture.format.compCount;
-
-  const float rangeSize = display.rangeMax - display.rangeMin;
-  const bool linearToGamma = display.linearDisplayAsGamma && !texture.format.SRGBCorrected();
-
-  for(uint32_t y = 0; y < imageHeight; y++)
-  {
-    QRgb *pixels = (QRgb *)image.scanLine(int(y));
-    const uint32_t sourceY = uint32_t((uint64_t(y) * height) / imageHeight);
-    for(uint32_t x = 0; x < imageWidth; x++)
-    {
-      const uint32_t sourceX = uint32_t((uint64_t(x) * width) / imageWidth);
-      const byte *pixel = source.data() + (uint64_t(sourceY) * width + sourceX) * elementSize;
-      const byte *end = source.data() + source.size();
-      const QVariantList values = GetVariants(texture.format, componentType, pixel, end);
-
-      float components[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-      for(int component = 0; component < values.count() && component < 4; component++)
-      {
-        const double value = values[component].toDouble();
-        if(qIsFinite(value))
-        {
-          const double remapped = rangeSize != 0.0f
-                                      ? (value - display.rangeMin) / rangeSize
-                                      : value - display.rangeMin;
-          components[component] = float(qBound(0.0, remapped, 1.0));
-        }
-      }
-
-      float red = display.red ? components[0] : 0.0f;
-      float green = display.green ? components[1] : 0.0f;
-      float blue = display.blue ? components[2] : 0.0f;
-      const float alpha = display.alpha ? components[3] : 1.0f;
-
-      if(linearToGamma)
-      {
-        red = ConvertLinearToSRGB(red);
-        green = ConvertLinearToSRGB(green);
-        blue = ConvertLinearToSRGB(blue);
-      }
-
-      pixels[x] = qRgba(qRound(red * 255.0f), qRound(green * 255.0f), qRound(blue * 255.0f),
-                        qRound(alpha * 255.0f));
-    }
-  }
-
-  preview.texture = image;
-  preview.textureFlipY = flipY;
-  preview.textureStatus = QObject::tr("Texture background: %1 × %2").arg(width).arg(height);
 }
 
 // if changing these functions, consider running the 'exhaustive test' at the bottom of this file
@@ -1612,10 +1474,10 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
          "Variables: uv.x, uv.y. Functions: sin, cos, tan, abs, sqrt, floor, ceil, fract, min, "
          "max, pow, clamp."));
   m_UVPreviewToggle = new QToolButton(m_UVToolbar);
-  m_UVPreviewToggle->setText(tr("Preview"));
+  m_UVPreviewToggle->setText(tr("Overlay"));
   m_UVPreviewToggle->setCheckable(true);
   m_UVPreviewToggle->setToolTip(
-      tr("Show the current draw's selected UV channel in a docked UV preview"));
+      tr("Overlay the selected UV channel directly on the current texture"));
 
   uvLayout->addWidget(uvLabel);
   uvLayout->addWidget(m_UVChannel);
@@ -1624,14 +1486,18 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   uvLayout->addWidget(m_UVPreviewToggle);
   flow2->addWidget(m_UVToolbar);
 
-  m_UVPreview = new UVPreviewWidget(this);
-  m_UVPreview->setWindowTitle(tr("UV Preview"));
+  m_UVOverlay = new UVOverlayWidget(ui->render);
+  m_UVOverlay->setGeometry(ui->render->rect());
+  m_UVOverlay->hide();
 
   QObject::connect(m_UVPreviewToggle, &QToolButton::toggled, this,
                    &TextureViewer::uvPreview_toggled);
   QObject::connect(m_UVChannel, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
                    &TextureViewer::uvChannel_changed);
   QObject::connect(m_UVFormula, &QLineEdit::textChanged, this, &TextureViewer::uvFormula_changed);
+  QObject::connect(ui->render, &CustomPaintWidget::resize, [this](QResizeEvent *) {
+    UI_UpdateUVOverlayDisplay();
+  });
   UI_UpdateUVChannels();
 
   vertical->addWidget(flow1widget);
@@ -1859,7 +1725,10 @@ void TextureViewer::RT_UpdateAndDisplay(IReplayController *r)
   if(m_Output != NULL)
     m_Output->SetTextureDisplay(m_TexDisplay);
 
-  GUIInvoke::call(this, [this]() { ui->render->update(); });
+  GUIInvoke::call(this, [this]() {
+    UI_UpdateUVOverlayDisplay();
+    ui->render->update();
+  });
 }
 
 void TextureViewer::RT_UpdateVisualRange(IReplayController *r)
@@ -2970,8 +2839,7 @@ void TextureViewer::uvPreview_toggled(bool checked)
   if(!checked)
   {
     ++m_UVPreviewRequest;
-    if(m_UVPreviewDocked)
-      m_UVPreview->hide();
+    m_UVOverlay->hide();
     return;
   }
 
@@ -2981,17 +2849,9 @@ void TextureViewer::uvPreview_toggled(bool checked)
     return;
   }
 
-  if(!m_UVPreviewDocked)
-  {
-    ui->dockarea->addToolWindow(
-        m_UVPreview, ToolWindowManager::AreaReference(ToolWindowManager::BottomOf,
-                                                       ui->dockarea->areaOf(ui->renderContainer), 0.35f));
-    ui->dockarea->setToolWindowProperties(m_UVPreview, ToolWindowManager::HideOnClose);
-    m_UVPreviewDocked = true;
-  }
-
-  m_UVPreview->show();
-  ToolWindowManager::raiseToolWindow(m_UVPreview);
+  UI_UpdateUVOverlayDisplay();
+  m_UVOverlay->show();
+  m_UVOverlay->raise();
   UI_UpdateUVPreview();
 }
 
@@ -3004,7 +2864,7 @@ void TextureViewer::uvChannel_changed(int)
 void TextureViewer::uvFormula_changed(const QString &formula)
 {
   QString error;
-  if(m_UVPreview->SetFormula(formula, error))
+  if(m_UVOverlay->SetFormula(formula, error))
   {
     m_UVFormula->setStyleSheet(QString());
     m_UVFormula->setToolTip(
@@ -3016,7 +2876,7 @@ void TextureViewer::uvFormula_changed(const QString &formula)
   {
     m_UVFormula->setStyleSheet(lit("QLineEdit { border: 1px solid #d9534f; }"));
     m_UVFormula->setToolTip(error);
-    m_UVPreview->SetFormulaError(error);
+    m_UVOverlay->SetFormulaError(error);
   }
 }
 
@@ -3030,7 +2890,7 @@ void TextureViewer::UI_UpdateUVPreview()
   {
     UVPreviewData previewData;
     previewData.status = tr("Select a draw with a readable UV channel");
-    m_UVPreview->SetData(std::move(previewData));
+    m_UVOverlay->SetData(std::move(previewData));
     return;
   }
 
@@ -3043,7 +2903,7 @@ void TextureViewer::UI_UpdateUVPreview()
   {
     UVPreviewData previewData;
     previewData.status = tr("The selected UV channel is not bound to a vertex buffer");
-    m_UVPreview->SetData(std::move(previewData));
+    m_UVOverlay->SetData(std::move(previewData));
     return;
   }
 
@@ -3059,37 +2919,46 @@ void TextureViewer::UI_UpdateUVPreview()
   const bool restartEnabled = pipe.IsRestartEnabled();
   const uint32_t restartIndex = pipe.GetRestartIndex();
 
-  TextureDescription texture = {};
-  const TextureDescription *texturePtr = GetCurrentTexture();
-  const bool previewTexture = texturePtr != NULL && texturePtr->resourceId == m_TexDisplay.resourceId;
-  if(previewTexture)
-    texture = *texturePtr;
-  const TextureDisplay textureDisplay = m_TexDisplay;
-  const bool textureFlipY = ShouldFlipForGL() != m_TexDisplay.flipY;
-
   UVPreviewData pending;
-  pending.status = tr("Loading UV and texture data...");
-  m_UVPreview->SetData(std::move(pending));
+  pending.status = tr("Loading UV data...");
+  m_UVOverlay->SetData(std::move(pending));
 
   QPointer<TextureViewer> self(this);
   m_Ctx.Replay().AsyncInvoke(
       [self, request, attribute, vertexBuffer, indexBuffer, topology, numIndices, indexOffset,
-       vertexOffset, baseVertex, indexed, restartEnabled, restartIndex, texture, textureDisplay,
-       textureFlipY, previewTexture](IReplayController *r) {
+       vertexOffset, baseVertex, indexed, restartEnabled, restartIndex](IReplayController *r) {
         UVPreviewData data =
             FetchUVPreview(r, attribute, vertexBuffer, indexBuffer, topology, numIndices, indexOffset,
                            vertexOffset, baseVertex, indexed, restartEnabled, restartIndex);
-        if(previewTexture)
-          FetchUVTexturePreview(r, texture, textureDisplay, textureFlipY, data);
 
         if(self)
         {
           GUIInvoke::call(self.data(), [self, request, data = std::move(data)]() mutable {
             if(self && self->m_UVPreviewRequest == request && self->m_UVPreviewToggle->isChecked())
-              self->m_UVPreview->SetData(std::move(data));
+              self->m_UVOverlay->SetData(std::move(data));
           });
         }
       });
+}
+
+void TextureViewer::UI_UpdateUVOverlayDisplay()
+{
+  if(m_UVOverlay == NULL)
+    return;
+
+  m_UVOverlay->setGeometry(ui->render->rect());
+
+  TextureDescription *texture = GetCurrentTexture();
+  if(texture == NULL || texture->resourceId != m_TexDisplay.resourceId)
+  {
+    m_UVOverlay->SetTextureDisplay(m_TexDisplay, QSize(), ui->render->devicePixelRatioF());
+    return;
+  }
+
+  const uint32_t mip = m_TexDisplay.subresource.mip;
+  const QSize size(qMax(1U, texture->width >> mip), qMax(1U, texture->height >> mip));
+  m_UVOverlay->SetTextureDisplay(m_TexDisplay, size, ui->render->devicePixelRatioF());
+  m_UVOverlay->raise();
 }
 
 void TextureViewer::SetupTextureTabs()

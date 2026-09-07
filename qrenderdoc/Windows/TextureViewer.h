@@ -42,7 +42,7 @@ class ThumbnailStrip;
 class TextureGoto;
 class QFileSystemWatcher;
 class TextureViewer;
-class UVPreviewWidget;
+class UVOverlayWidget;
 class QComboBox;
 class QLineEdit;
 class QToolButton;
@@ -270,6 +270,7 @@ private:
   void UI_UpdateChannels();
   void UI_UpdateUVChannels();
   void UI_UpdateUVPreview();
+  void UI_UpdateUVOverlayDisplay();
 
   void HighlightUsage();
 
@@ -369,8 +370,7 @@ private:
   QComboBox *m_UVChannel = NULL;
   QLineEdit *m_UVFormula = NULL;
   QToolButton *m_UVPreviewToggle = NULL;
-  UVPreviewWidget *m_UVPreview = NULL;
-  bool m_UVPreviewDocked = false;
+  UVOverlayWidget *m_UVOverlay = NULL;
   uint64_t m_UVPreviewRequest = 0;
 
   Ui::TextureViewer *ui;
