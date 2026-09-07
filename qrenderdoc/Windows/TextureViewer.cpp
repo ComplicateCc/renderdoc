@@ -27,6 +27,7 @@
 #include <math.h>
 #include <QClipboard>
 #include <QColorDialog>
+#include <QComboBox>
 #include <QFileSystemWatcher>
 #include <QFontDatabase>
 #include <QItemDelegate>
@@ -35,6 +36,9 @@
 #include <QPainter>
 #include <QPointer>
 #include <QStyledItemDelegate>
+#include <QToolButton>
+#include <QVBoxLayout>
+#include <algorithm>
 #include "Code/QRDUtils.h"
 #include "Code/Resources.h"
 #include "Dialogs/TextureSaveDialog.h"
@@ -53,6 +57,378 @@ float area(const QSizeF &s)
 float aspect(const QSizeF &s)
 {
   return s.width() / s.height();
+}
+
+struct UVPreviewData
+{
+  QVector<QPointF> vertices;
+  rdcarray<uint32_t> indices;
+  Topology topology = Topology::Unknown;
+  QString status;
+};
+
+class UVPreviewWidget : public QWidget
+{
+public:
+  explicit UVPreviewWidget(QWidget *parent) : QWidget(parent)
+  {
+    setMinimumSize(220, 180);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  }
+
+  void SetData(UVPreviewData &&previewData)
+  {
+    m_Data = std::move(previewData);
+    update();
+  }
+
+protected:
+  void paintEvent(QPaintEvent *) override
+  {
+    QPainter painter(this);
+    painter.fillRect(rect(), QColor(35, 35, 35));
+
+    const QRectF drawRect = rect().adjusted(28, 12, -12, -28);
+
+    if(m_Data.vertices.empty() || m_Data.indices.empty())
+    {
+      painter.setPen(palette().color(QPalette::Disabled, QPalette::Text));
+      painter.drawText(drawRect, Qt::AlignCenter,
+                       m_Data.status.isEmpty() ? tr("No UV data available") : m_Data.status);
+      return;
+    }
+
+    double minX = 0.0, minY = 0.0, maxX = 1.0, maxY = 1.0;
+    for(const QPointF &uv : m_Data.vertices)
+    {
+      if(qIsFinite(uv.x()) && qIsFinite(uv.y()))
+      {
+        minX = qMin(minX, uv.x());
+        minY = qMin(minY, uv.y());
+        maxX = qMax(maxX, uv.x());
+        maxY = qMax(maxY, uv.y());
+      }
+    }
+
+    const double width = qMax(1.0e-6, maxX - minX);
+    const double height = qMax(1.0e-6, maxY - minY);
+    const double scale = qMin(drawRect.width() / width, drawRect.height() / height);
+    const QPointF origin(drawRect.left() + (drawRect.width() - width * scale) * 0.5 - minX * scale,
+                         drawRect.bottom() - (drawRect.height() - height * scale) * 0.5 + minY * scale);
+
+    const auto map = [&origin, scale](const QPointF &uv) {
+      return QPointF(origin.x() + uv.x() * scale, origin.y() - uv.y() * scale);
+    };
+
+    painter.save();
+    painter.setClipRect(drawRect);
+
+    const int gridMinX = qMax(-64, int(floor(minX)));
+    const int gridMaxX = qMin(64, int(ceil(maxX)));
+    const int gridMinY = qMax(-64, int(floor(minY)));
+    const int gridMaxY = qMin(64, int(ceil(maxY)));
+    painter.setPen(QPen(QColor(85, 85, 85), 1.0));
+    for(int x = gridMinX; x <= gridMaxX; x++)
+      painter.drawLine(map(QPointF(x, minY)), map(QPointF(x, maxY)));
+    for(int y = gridMinY; y <= gridMaxY; y++)
+      painter.drawLine(map(QPointF(minX, y)), map(QPointF(maxX, y)));
+
+    painter.setPen(QPen(QColor(155, 155, 155), 1.0));
+    painter.drawRect(QRectF(map(QPointF(0.0, 1.0)), map(QPointF(1.0, 0.0))).normalized());
+
+    const uint32_t invalidIndex = ~0U;
+    const auto isValid = [this, invalidIndex](uint32_t index) {
+      if(index == invalidIndex || index >= (uint32_t)m_Data.vertices.size())
+        return false;
+      const QPointF &uv = m_Data.vertices[(int)index];
+      return qIsFinite(uv.x()) && qIsFinite(uv.y());
+    };
+    const auto drawEdge = [&painter, &map, &isValid, this](uint32_t a, uint32_t b) {
+      if(isValid(a) && isValid(b))
+        painter.drawLine(map(m_Data.vertices[(int)a]), map(m_Data.vertices[(int)b]));
+    };
+    const auto drawTriangle = [&drawEdge](uint32_t a, uint32_t b, uint32_t c) {
+      drawEdge(a, b);
+      drawEdge(b, c);
+      drawEdge(c, a);
+    };
+
+    painter.setPen(QPen(QColor(70, 220, 255), 1.25));
+    const rdcarray<uint32_t> &indices = m_Data.indices;
+
+    switch(m_Data.topology)
+    {
+      case Topology::PointList:
+        for(uint32_t index : indices)
+          if(isValid(index))
+            painter.drawEllipse(map(m_Data.vertices[(int)index]), 2.0, 2.0);
+        break;
+      case Topology::LineList:
+        for(size_t i = 1; i < indices.size(); i += 2)
+          drawEdge(indices[i - 1], indices[i]);
+        break;
+      case Topology::LineStrip:
+      case Topology::LineStrip_Adj:
+      {
+        uint32_t previous = invalidIndex;
+        for(uint32_t index : indices)
+        {
+          if(index == invalidIndex)
+          {
+            previous = invalidIndex;
+            continue;
+          }
+          if(previous != invalidIndex)
+            drawEdge(previous, index);
+          previous = index;
+        }
+        break;
+      }
+      case Topology::LineLoop:
+      {
+        uint32_t first = invalidIndex, previous = invalidIndex;
+        for(uint32_t index : indices)
+        {
+          if(index == invalidIndex)
+          {
+            if(first != invalidIndex && previous != invalidIndex)
+              drawEdge(previous, first);
+            first = previous = invalidIndex;
+            continue;
+          }
+          if(first == invalidIndex)
+            first = index;
+          if(previous != invalidIndex)
+            drawEdge(previous, index);
+          previous = index;
+        }
+        if(first != invalidIndex && previous != invalidIndex)
+          drawEdge(previous, first);
+        break;
+      }
+      case Topology::TriangleList:
+        for(size_t i = 2; i < indices.size(); i += 3)
+          drawTriangle(indices[i - 2], indices[i - 1], indices[i]);
+        break;
+      case Topology::TriangleStrip:
+      {
+        uint32_t a = invalidIndex, b = invalidIndex;
+        for(uint32_t index : indices)
+        {
+          if(index == invalidIndex)
+          {
+            a = b = invalidIndex;
+            continue;
+          }
+          if(a != invalidIndex && b != invalidIndex)
+            drawTriangle(a, b, index);
+          a = b;
+          b = index;
+        }
+        break;
+      }
+      case Topology::TriangleFan:
+      {
+        uint32_t first = invalidIndex, previous = invalidIndex;
+        for(uint32_t index : indices)
+        {
+          if(index == invalidIndex)
+          {
+            first = previous = invalidIndex;
+            continue;
+          }
+          if(first == invalidIndex)
+            first = index;
+          else if(previous != invalidIndex)
+            drawTriangle(first, previous, index);
+          previous = index;
+        }
+        break;
+      }
+      case Topology::LineList_Adj:
+        for(size_t i = 3; i < indices.size(); i += 4)
+          drawEdge(indices[i - 2], indices[i - 1]);
+        break;
+      case Topology::TriangleList_Adj:
+        for(size_t i = 5; i < indices.size(); i += 6)
+          drawTriangle(indices[i - 5], indices[i - 3], indices[i - 1]);
+        break;
+      case Topology::TriangleStrip_Adj:
+        for(size_t i = 4; i < indices.size(); i += 2)
+          drawTriangle(indices[i - 4], indices[i - 2], indices[i]);
+        break;
+      default:
+      {
+        const uint32_t controlPoints = PatchList_Count(m_Data.topology);
+        if(controlPoints > 1)
+        {
+          for(size_t i = 0; i + controlPoints <= indices.size(); i += controlPoints)
+            for(uint32_t point = 1; point < controlPoints; point++)
+              drawEdge(indices[i + point - 1], indices[i + point]);
+        }
+        break;
+      }
+    }
+
+    painter.restore();
+    painter.setPen(palette().color(QPalette::Text));
+    painter.drawText(QRectF(4, this->height() - 22, this->width() - 8, 18),
+                     Qt::AlignLeft | Qt::AlignVCenter,
+                     m_Data.status);
+  }
+
+private:
+  UVPreviewData m_Data;
+};
+
+static UVPreviewData FetchUVPreview(IReplayController *r, const VertexInputAttribute &attribute,
+                                    const BoundVBuffer &vertexBuffer, const BoundVBuffer &indexBuffer,
+                                    Topology topology, uint32_t numIndices, uint32_t indexOffset,
+                                    uint32_t vertexOffset, int32_t baseVertex, bool indexed,
+                                    bool restartEnabled, uint32_t restartIndex)
+{
+  static const uint32_t MaxPreviewIndices = 300000;
+  static const uint64_t MaxVertexReadBytes = 64ULL * 1024ULL * 1024ULL;
+  static const uint32_t MaxPreviewVertices = 2000000;
+  static const uint32_t InvalidIndex = ~0U;
+
+  UVPreviewData data;
+  data.topology = topology;
+
+  if(numIndices == 0 || attribute.format.compCount < 2)
+  {
+    data.status = QObject::tr("The current draw has no usable UV data");
+    return data;
+  }
+
+  if(attribute.genericEnabled || vertexBuffer.resourceId == ResourceId() ||
+     vertexBuffer.byteStride == 0 || attribute.format.ElementSize() == 0)
+  {
+    data.status = QObject::tr("This UV channel is not backed by a readable vertex buffer");
+    return data;
+  }
+
+  uint32_t previewIndices = qMin(numIndices, MaxPreviewIndices);
+  data.indices.resize(previewIndices);
+
+  if(indexed)
+  {
+    if(indexBuffer.resourceId == ResourceId() ||
+       (indexBuffer.byteStride != 1 && indexBuffer.byteStride != 2 && indexBuffer.byteStride != 4))
+    {
+      data.status = QObject::tr("The current draw has no readable index buffer");
+      data.indices.clear();
+      return data;
+    }
+
+    uint64_t readBytes = uint64_t(previewIndices) * indexBuffer.byteStride;
+    uint64_t indexStart = uint64_t(indexOffset) * indexBuffer.byteStride;
+    if(indexStart >= indexBuffer.byteSize)
+      readBytes = 0;
+    else
+      readBytes = qMin(readBytes, indexBuffer.byteSize - indexStart);
+
+    bytebuf indexData =
+        r->GetBufferData(indexBuffer.resourceId, indexBuffer.byteOffset + indexStart, readBytes);
+    previewIndices = qMin(previewIndices, uint32_t(indexData.size() / indexBuffer.byteStride));
+    data.indices.resize(previewIndices);
+
+    for(uint32_t i = 0; i < previewIndices; i++)
+    {
+      uint32_t index = 0;
+      memcpy(&index, indexData.data() + size_t(i) * indexBuffer.byteStride, indexBuffer.byteStride);
+
+      if(restartEnabled && index == restartIndex)
+      {
+        data.indices[i] = InvalidIndex;
+        continue;
+      }
+
+      const int64_t adjustedIndex = int64_t(index) + int64_t(baseVertex);
+      data.indices[i] = (adjustedIndex < 0 || adjustedIndex > int64_t(UINT32_MAX))
+                            ? InvalidIndex
+                            : uint32_t(adjustedIndex);
+    }
+  }
+  else
+  {
+    for(uint32_t i = 0; i < previewIndices; i++)
+      data.indices[i] = i;
+  }
+
+  uint32_t minVertex = UINT32_MAX;
+  uint32_t maxVertex = 0;
+  for(uint32_t index : data.indices)
+  {
+    if(index != InvalidIndex)
+    {
+      minVertex = qMin(minVertex, index);
+      maxVertex = qMax(maxVertex, index);
+    }
+  }
+
+  if(minVertex == UINT32_MAX)
+  {
+    data.status = QObject::tr("The selected UV channel contains no drawable vertices");
+    return data;
+  }
+
+  const uint64_t vertexCount = uint64_t(maxVertex) - minVertex + 1;
+  const uint64_t vertexFirst = uint64_t(vertexOffset) + minVertex;
+  const uint64_t bindingOffset = vertexFirst * vertexBuffer.byteStride + attribute.byteOffset;
+  const uint64_t readBytes = (vertexCount - 1) * vertexBuffer.byteStride + attribute.format.ElementSize();
+
+  if(vertexCount > MaxPreviewVertices || readBytes > MaxVertexReadBytes ||
+     bindingOffset >= vertexBuffer.byteSize || readBytes > vertexBuffer.byteSize - bindingOffset)
+  {
+    data.indices.clear();
+    data.status = QObject::tr("UV vertex range is too large for the interactive preview");
+    return data;
+  }
+
+  bytebuf vertexData =
+      r->GetBufferData(vertexBuffer.resourceId, vertexBuffer.byteOffset + bindingOffset, readBytes);
+  if(vertexData.size() < attribute.format.ElementSize())
+  {
+    data.indices.clear();
+    data.status = QObject::tr("Could not read the selected UV vertex data");
+    return data;
+  }
+
+  data.vertices.resize(int(vertexCount));
+  const QPointF invalidPoint(qQNaN(), qQNaN());
+  std::fill(data.vertices.begin(), data.vertices.end(), invalidPoint);
+
+  ShaderConstant componentType;
+  componentType.type.rows = 1;
+  componentType.type.columns = attribute.format.compCount;
+
+  for(uint64_t vertex = 0; vertex < vertexCount; vertex++)
+  {
+    const uint64_t offset = vertex * vertexBuffer.byteStride;
+    if(offset + attribute.format.ElementSize() > uint64_t(vertexData.size()))
+      break;
+
+    const byte *source = vertexData.data() + offset;
+    const byte *end = vertexData.data() + vertexData.size();
+    const QVariantList values = GetVariants(attribute.format, componentType, source, end);
+    if(values.size() >= 2)
+    {
+      const double u = values[0].toDouble();
+      const double v = values[1].toDouble();
+      if(qIsFinite(u) && qIsFinite(v))
+        data.vertices[int(vertex)] = QPointF(u, v);
+    }
+  }
+
+  for(uint32_t &index : data.indices)
+    if(index != InvalidIndex)
+      index -= minVertex;
+
+  data.status = previewIndices < numIndices
+                    ? QObject::tr("Showing the first %1 of %2 indices").arg(previewIndices).arg(numIndices)
+                    : QObject::tr("%1 indices").arg(previewIndices);
+  return data;
 }
 
 // if changing these functions, consider running the 'exhaustive test' at the bottom of this file
@@ -647,6 +1023,36 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   flow2->addWidget(ui->zoomToolbar);
   flow2->addWidget(ui->overlayToolbar);
   flow2->addWidget(ui->rangeToolbar);
+
+  m_UVToolbar = new QFrame(this);
+  m_UVToolbar->setFrameShape(QFrame::Panel);
+  m_UVToolbar->setFrameShadow(QFrame::Raised);
+  QHBoxLayout *uvLayout = new QHBoxLayout(m_UVToolbar);
+  uvLayout->setSpacing(3);
+  uvLayout->setContentsMargins(6, 2, 6, 2);
+
+  QLabel *uvLabel = new QLabel(tr("UV"), m_UVToolbar);
+  m_UVChannel = new QComboBox(m_UVToolbar);
+  m_UVChannel->setToolTip(tr("Choose the mesh vertex-input channel to visualise"));
+  m_UVPreviewToggle = new QToolButton(m_UVToolbar);
+  m_UVPreviewToggle->setText(tr("Preview"));
+  m_UVPreviewToggle->setCheckable(true);
+  m_UVPreviewToggle->setToolTip(
+      tr("Show the current draw's selected UV channel in a docked UV preview"));
+
+  uvLayout->addWidget(uvLabel);
+  uvLayout->addWidget(m_UVChannel);
+  uvLayout->addWidget(m_UVPreviewToggle);
+  flow2->addWidget(m_UVToolbar);
+
+  m_UVPreview = new UVPreviewWidget(this);
+  m_UVPreview->setWindowTitle(tr("UV Preview"));
+
+  QObject::connect(m_UVPreviewToggle, &QToolButton::toggled, this,
+                   &TextureViewer::uvPreview_toggled);
+  QObject::connect(m_UVChannel, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+                   &TextureViewer::uvChannel_changed);
+  UI_UpdateUVChannels();
 
   vertical->addWidget(flow1widget);
   vertical->addWidget(flow2widget);
@@ -1908,6 +2314,168 @@ void TextureViewer::UI_UpdateChannels()
   INVOKE_MEMFN(RT_UpdateAndDisplay);
   INVOKE_MEMFN(RT_UpdateVisualRange);
   UI_UpdateStatusText();
+}
+
+void TextureViewer::UI_UpdateUVChannels()
+{
+  if(m_UVChannel == NULL || m_UVPreviewToggle == NULL)
+    return;
+
+  const int previousAttribute = m_UVChannel->currentData().toInt();
+  m_UVChannel->blockSignals(true);
+  m_UVChannel->clear();
+
+  int selectedIndex = -1;
+  int preferredIndex = -1;
+
+  const ActionDescription *action = m_Ctx.CurAction();
+  if(m_Ctx.IsCaptureLoaded() && action && (action->flags & ActionFlags::Drawcall) &&
+     !(action->flags & ActionFlags::MeshDispatch))
+  {
+    const rdcarray<VertexInputAttribute> attributes = m_Ctx.CurPipelineState().GetVertexInputs();
+    for(int attributeIndex = 0; attributeIndex < attributes.count(); attributeIndex++)
+    {
+      const VertexInputAttribute &attribute = attributes[attributeIndex];
+      if(attribute.perInstance || attribute.genericEnabled || attribute.format.compCount < 2 ||
+         attribute.format.ElementSize() == 0)
+        continue;
+
+      QString name = QString(attribute.name);
+      if(name.isEmpty())
+        name = tr("Attribute %1").arg(attributeIndex);
+
+      const int comboIndex = m_UVChannel->count();
+      m_UVChannel->addItem(tr("%1 (%2)").arg(name).arg(QString(attribute.format.Name())),
+                            attributeIndex);
+
+      if(attributeIndex == previousAttribute)
+        selectedIndex = comboIndex;
+
+      if(preferredIndex < 0 &&
+         (name.contains(lit("TEXCOORD"), Qt::CaseInsensitive) ||
+          name.contains(lit("UV"), Qt::CaseInsensitive) ||
+          name.contains(lit("TEX"), Qt::CaseInsensitive)))
+        preferredIndex = comboIndex;
+    }
+  }
+
+  const bool hasChannels = m_UVChannel->count() > 0;
+  if(!hasChannels)
+  {
+    m_UVChannel->addItem(tr("No readable UV channel"), -1);
+    selectedIndex = 0;
+  }
+  else if(selectedIndex < 0)
+  {
+    selectedIndex = preferredIndex >= 0 ? preferredIndex : 0;
+  }
+
+  m_UVChannel->setCurrentIndex(selectedIndex);
+  m_UVChannel->setEnabled(hasChannels);
+  m_UVPreviewToggle->setEnabled(hasChannels);
+  m_UVChannel->blockSignals(false);
+
+  if(!hasChannels && m_UVPreviewToggle->isChecked())
+    m_UVPreviewToggle->setChecked(false);
+  else if(hasChannels && m_UVPreviewToggle->isChecked())
+    UI_UpdateUVPreview();
+}
+
+void TextureViewer::uvPreview_toggled(bool checked)
+{
+  if(!checked)
+  {
+    ++m_UVPreviewRequest;
+    if(m_UVPreviewDocked)
+      m_UVPreview->hide();
+    return;
+  }
+
+  if(m_UVChannel->currentData().toInt() < 0)
+  {
+    m_UVPreviewToggle->setChecked(false);
+    return;
+  }
+
+  if(!m_UVPreviewDocked)
+  {
+    ui->dockarea->addToolWindow(
+        m_UVPreview, ToolWindowManager::AreaReference(ToolWindowManager::BottomOf,
+                                                       ui->dockarea->areaOf(ui->renderContainer), 0.35f));
+    ui->dockarea->setToolWindowProperties(m_UVPreview, ToolWindowManager::HideOnClose);
+    m_UVPreviewDocked = true;
+  }
+
+  m_UVPreview->show();
+  ToolWindowManager::raiseToolWindow(m_UVPreview);
+  UI_UpdateUVPreview();
+}
+
+void TextureViewer::uvChannel_changed(int)
+{
+  if(m_UVPreviewToggle->isChecked())
+    UI_UpdateUVPreview();
+}
+
+void TextureViewer::UI_UpdateUVPreview()
+{
+  const uint64_t request = ++m_UVPreviewRequest;
+  const int attributeIndex = m_UVChannel->currentData().toInt();
+
+  const ActionDescription *action = m_Ctx.CurAction();
+  if(!m_Ctx.IsCaptureLoaded() || !action || attributeIndex < 0)
+  {
+    UVPreviewData previewData;
+    previewData.status = tr("Select a draw with a readable UV channel");
+    m_UVPreview->SetData(std::move(previewData));
+    return;
+  }
+
+  const PipeState &pipe = m_Ctx.CurPipelineState();
+  const rdcarray<VertexInputAttribute> attributes = pipe.GetVertexInputs();
+  const rdcarray<BoundVBuffer> vertexBuffers = pipe.GetVBuffers();
+
+  if(attributeIndex >= attributes.count() || attributes[attributeIndex].vertexBuffer < 0 ||
+     attributes[attributeIndex].vertexBuffer >= vertexBuffers.count())
+  {
+    UVPreviewData previewData;
+    previewData.status = tr("The selected UV channel is not bound to a vertex buffer");
+    m_UVPreview->SetData(std::move(previewData));
+    return;
+  }
+
+  const VertexInputAttribute attribute = attributes[attributeIndex];
+  const BoundVBuffer vertexBuffer = vertexBuffers[attribute.vertexBuffer];
+  const BoundVBuffer indexBuffer = pipe.GetIBuffer();
+  const Topology topology = pipe.GetPrimitiveTopology();
+  const uint32_t numIndices = action->numIndices;
+  const uint32_t indexOffset = action->indexOffset;
+  const uint32_t vertexOffset = action->vertexOffset;
+  const int32_t baseVertex = action->baseVertex;
+  const bool indexed = bool(action->flags & ActionFlags::Indexed);
+  const bool restartEnabled = pipe.IsRestartEnabled();
+  const uint32_t restartIndex = pipe.GetRestartIndex();
+
+  UVPreviewData pending;
+  pending.status = tr("Loading UV data...");
+  m_UVPreview->SetData(std::move(pending));
+
+  QPointer<TextureViewer> self(this);
+  m_Ctx.Replay().AsyncInvoke(
+      [self, request, attribute, vertexBuffer, indexBuffer, topology, numIndices, indexOffset,
+       vertexOffset, baseVertex, indexed, restartEnabled, restartIndex](IReplayController *r) {
+        UVPreviewData data =
+            FetchUVPreview(r, attribute, vertexBuffer, indexBuffer, topology, numIndices, indexOffset,
+                           vertexOffset, baseVertex, indexed, restartEnabled, restartIndex);
+
+        if(self)
+        {
+          GUIInvoke::call(self.data(), [self, request, data = std::move(data)]() mutable {
+            if(self && self->m_UVPreviewRequest == request && self->m_UVPreviewToggle->isChecked())
+              self->m_UVPreview->SetData(std::move(data));
+          });
+        }
+      });
 }
 
 void TextureViewer::SetupTextureTabs()
@@ -3254,6 +3822,7 @@ void TextureViewer::Reset()
 
   UI_UpdateTextureDetails();
   UI_UpdateChannels();
+  UI_UpdateUVChannels();
 }
 
 void TextureViewer::refreshTextureList()
@@ -3400,6 +3969,8 @@ void TextureViewer::OnEventChanged(uint32_t eventId)
   if(!currentTextureIsLocked() ||
      (CurrentTexture != NULL && m_TexDisplay.resourceId != CurrentTexture->resourceId))
     UI_OnTextureSelectionChanged(true);
+
+  UI_UpdateUVChannels();
 
   if(m_Output == NULL)
     return;

@@ -42,6 +42,9 @@ class ThumbnailStrip;
 class TextureGoto;
 class QFileSystemWatcher;
 class TextureViewer;
+class UVPreviewWidget;
+class QComboBox;
+class QToolButton;
 
 struct Following
 {
@@ -242,6 +245,8 @@ private slots:
   void channelsWidget_mouseClicked(QMouseEvent *event);
   void channelsWidget_toggled(bool checked) { UI_UpdateChannels(); }
   void channelsWidget_selected(int index) { UI_UpdateChannels(); }
+  void uvPreview_toggled(bool checked);
+  void uvChannel_changed(int index);
 protected:
   void enterEvent(QEvent *event) override;
   void showEvent(QShowEvent *event) override;
@@ -261,6 +266,8 @@ private:
   void UI_SetHistogramRange(const TextureDescription *tex, CompType typeCast);
 
   void UI_UpdateChannels();
+  void UI_UpdateUVChannels();
+  void UI_UpdateUVPreview();
 
   void HighlightUsage();
 
@@ -355,6 +362,13 @@ private:
   int m_ResourceCacheID = -1;
 
   TextureGoto *m_Goto;
+
+  QFrame *m_UVToolbar = NULL;
+  QComboBox *m_UVChannel = NULL;
+  QToolButton *m_UVPreviewToggle = NULL;
+  UVPreviewWidget *m_UVPreview = NULL;
+  bool m_UVPreviewDocked = false;
+  uint64_t m_UVPreviewRequest = 0;
 
   Ui::TextureViewer *ui;
   ICaptureContext &m_Ctx;
