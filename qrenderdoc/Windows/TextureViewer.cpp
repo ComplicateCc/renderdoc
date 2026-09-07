@@ -30,8 +30,10 @@
 #include <QComboBox>
 #include <QFileSystemWatcher>
 #include <QFontDatabase>
+#include <QImage>
 #include <QItemDelegate>
 #include <QJsonDocument>
+#include <QLineEdit>
 #include <QMenu>
 #include <QPainter>
 #include <QPointer>
@@ -59,11 +61,418 @@ float aspect(const QSizeF &s)
   return s.width() / s.height();
 }
 
+enum class UVExpressionOp
+{
+  Constant,
+  U,
+  V,
+  Add,
+  Subtract,
+  Multiply,
+  Divide,
+  Negate,
+  Sine,
+  Cosine,
+  Tangent,
+  Absolute,
+  SquareRoot,
+  Floor,
+  Ceil,
+  Fract,
+  Minimum,
+  Maximum,
+  Power,
+  Modulo,
+  Clamp,
+};
+
+struct UVExpressionToken
+{
+  UVExpressionOp op;
+  double value = 0.0;
+};
+
+struct UVExpression
+{
+  QVector<UVExpressionToken> tokens;
+
+  double Evaluate(double u, double v) const
+  {
+    double stack[128];
+    int count = 0;
+
+    const auto push = [&stack, &count](double value) {
+      if(count >= 128)
+        return false;
+      stack[count++] = value;
+      return true;
+    };
+    const auto pop = [&stack, &count](double &value) {
+      if(count <= 0)
+        return false;
+      value = stack[--count];
+      return true;
+    };
+
+    for(const UVExpressionToken &token : tokens)
+    {
+      double a = 0.0, b = 0.0, c = 0.0;
+      switch(token.op)
+      {
+        case UVExpressionOp::Constant:
+          if(!push(token.value))
+            return qQNaN();
+          break;
+        case UVExpressionOp::U:
+          if(!push(u))
+            return qQNaN();
+          break;
+        case UVExpressionOp::V:
+          if(!push(v))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Negate:
+          if(!pop(a) || !push(-a))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Sine:
+          if(!pop(a) || !push(sin(a)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Cosine:
+          if(!pop(a) || !push(cos(a)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Tangent:
+          if(!pop(a) || !push(tan(a)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Absolute:
+          if(!pop(a) || !push(fabs(a)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::SquareRoot:
+          if(!pop(a) || !push(a >= 0.0 ? sqrt(a) : qQNaN()))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Floor:
+          if(!pop(a) || !push(floor(a)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Ceil:
+          if(!pop(a) || !push(ceil(a)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Fract:
+          if(!pop(a) || !push(a - floor(a)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Add:
+          if(!pop(b) || !pop(a) || !push(a + b))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Subtract:
+          if(!pop(b) || !pop(a) || !push(a - b))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Multiply:
+          if(!pop(b) || !pop(a) || !push(a * b))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Divide:
+          if(!pop(b) || !pop(a) || !push(b != 0.0 ? a / b : qQNaN()))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Minimum:
+          if(!pop(b) || !pop(a) || !push(qMin(a, b)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Maximum:
+          if(!pop(b) || !pop(a) || !push(qMax(a, b)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Power:
+          if(!pop(b) || !pop(a) || !push(pow(a, b)))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Modulo:
+          if(!pop(b) || !pop(a) || !push(b != 0.0 ? fmod(a, b) : qQNaN()))
+            return qQNaN();
+          break;
+        case UVExpressionOp::Clamp:
+          if(!pop(c) || !pop(b) || !pop(a) || !push(qBound(b, a, c)))
+            return qQNaN();
+          break;
+      }
+    }
+
+    return count == 1 ? stack[0] : qQNaN();
+  }
+};
+
+class UVFormulaParser
+{
+public:
+  explicit UVFormulaParser(const QString &text) : m_Text(text) {}
+
+  bool Parse(UVExpression &u, UVExpression &v, QString &error)
+  {
+    if(!ParseExpression(u) || !Consume(',' ) || !ParseExpression(v))
+    {
+      error = m_Error;
+      return false;
+    }
+
+    SkipWhitespace();
+    if(m_Position != m_Text.size())
+    {
+      SetError(QObject::tr("Unexpected text at character %1").arg(m_Position + 1));
+      error = m_Error;
+      return false;
+    }
+
+    error.clear();
+    return true;
+  }
+
+private:
+  bool ParseExpression(UVExpression &expression)
+  {
+    if(!ParseTerm(expression))
+      return false;
+
+    while(true)
+    {
+      if(Match('+'))
+      {
+        if(!ParseTerm(expression))
+          return false;
+        expression.tokens.push_back({UVExpressionOp::Add});
+      }
+      else if(Match('-'))
+      {
+        if(!ParseTerm(expression))
+          return false;
+        expression.tokens.push_back({UVExpressionOp::Subtract});
+      }
+      else
+      {
+        return true;
+      }
+    }
+  }
+
+  bool ParseTerm(UVExpression &expression)
+  {
+    if(!ParseUnary(expression))
+      return false;
+
+    while(true)
+    {
+      if(Match('*'))
+      {
+        if(!ParseUnary(expression))
+          return false;
+        expression.tokens.push_back({UVExpressionOp::Multiply});
+      }
+      else if(Match('/'))
+      {
+        if(!ParseUnary(expression))
+          return false;
+        expression.tokens.push_back({UVExpressionOp::Divide});
+      }
+      else if(Match('%'))
+      {
+        if(!ParseUnary(expression))
+          return false;
+        expression.tokens.push_back({UVExpressionOp::Modulo});
+      }
+      else
+      {
+        return true;
+      }
+    }
+  }
+
+  bool ParseUnary(UVExpression &expression)
+  {
+    if(Match('+'))
+      return ParseUnary(expression);
+    if(Match('-'))
+    {
+      if(!ParseUnary(expression))
+        return false;
+      expression.tokens.push_back({UVExpressionOp::Negate});
+      return true;
+    }
+    return ParsePrimary(expression);
+  }
+
+  bool ParsePrimary(UVExpression &expression)
+  {
+    SkipWhitespace();
+    if(Match('('))
+    {
+      if(!ParseExpression(expression) || !Consume(')'))
+        return false;
+      return true;
+    }
+
+    if(m_Position < m_Text.size() &&
+       (m_Text[m_Position].isDigit() || m_Text[m_Position].unicode() == '.'))
+    {
+      const int begin = m_Position;
+      while(m_Position < m_Text.size() &&
+            (m_Text[m_Position].isDigit() || m_Text[m_Position].unicode() == '.' ||
+             m_Text[m_Position].unicode() == 'e' || m_Text[m_Position].unicode() == 'E' ||
+             ((m_Text[m_Position].unicode() == '+' || m_Text[m_Position].unicode() == '-') &&
+              m_Position > begin && (m_Text[m_Position - 1].unicode() == 'e' ||
+                                      m_Text[m_Position - 1].unicode() == 'E'))))
+        m_Position++;
+
+      bool validNumber = false;
+      const double value = m_Text.mid(begin, m_Position - begin).toDouble(&validNumber);
+      if(!validNumber)
+      {
+        SetError(QObject::tr("Invalid number at character %1").arg(begin + 1));
+        return false;
+      }
+      expression.tokens.push_back({UVExpressionOp::Constant, value});
+      return CheckExpressionSize(expression);
+    }
+
+    if(m_Position >= m_Text.size() ||
+       !(m_Text[m_Position].isLetter() || m_Text[m_Position].unicode() == '_'))
+    {
+      SetError(QObject::tr("Expected a number, variable, or function at character %1")
+                   .arg(m_Position + 1));
+      return false;
+    }
+
+    const int begin = m_Position;
+    while(m_Position < m_Text.size() &&
+          (m_Text[m_Position].isLetterOrNumber() || m_Text[m_Position].unicode() == '_' ||
+            m_Text[m_Position].unicode() == '.'))
+      m_Position++;
+
+    const QString identifier = m_Text.mid(begin, m_Position - begin).toLower();
+    if(identifier == lit("uv.x") || identifier == lit("x"))
+    {
+      expression.tokens.push_back({UVExpressionOp::U});
+      return CheckExpressionSize(expression);
+    }
+    if(identifier == lit("uv.y") || identifier == lit("y"))
+    {
+      expression.tokens.push_back({UVExpressionOp::V});
+      return CheckExpressionSize(expression);
+    }
+    if(identifier == lit("pi"))
+    {
+      expression.tokens.push_back({UVExpressionOp::Constant, 3.14159265358979323846});
+      return CheckExpressionSize(expression);
+    }
+
+    UVExpressionOp op = UVExpressionOp::Add;
+    int argCount = 0;
+    if(identifier == lit("sin"))
+      op = UVExpressionOp::Sine, argCount = 1;
+    else if(identifier == lit("cos"))
+      op = UVExpressionOp::Cosine, argCount = 1;
+    else if(identifier == lit("tan"))
+      op = UVExpressionOp::Tangent, argCount = 1;
+    else if(identifier == lit("abs"))
+      op = UVExpressionOp::Absolute, argCount = 1;
+    else if(identifier == lit("sqrt"))
+      op = UVExpressionOp::SquareRoot, argCount = 1;
+    else if(identifier == lit("floor"))
+      op = UVExpressionOp::Floor, argCount = 1;
+    else if(identifier == lit("ceil"))
+      op = UVExpressionOp::Ceil, argCount = 1;
+    else if(identifier == lit("fract"))
+      op = UVExpressionOp::Fract, argCount = 1;
+    else if(identifier == lit("min"))
+      op = UVExpressionOp::Minimum, argCount = 2;
+    else if(identifier == lit("max"))
+      op = UVExpressionOp::Maximum, argCount = 2;
+    else if(identifier == lit("pow"))
+      op = UVExpressionOp::Power, argCount = 2;
+    else if(identifier == lit("clamp"))
+      op = UVExpressionOp::Clamp, argCount = 3;
+    else
+    {
+      SetError(QObject::tr("Unknown UV formula identifier '%1'").arg(identifier));
+      return false;
+    }
+
+    if(!Consume('('))
+      return false;
+    for(int argument = 0; argument < argCount; argument++)
+    {
+      if(argument > 0 && !Consume(','))
+        return false;
+      if(!ParseExpression(expression))
+        return false;
+    }
+    if(!Consume(')'))
+      return false;
+
+    expression.tokens.push_back({op});
+    return CheckExpressionSize(expression);
+  }
+
+  bool Consume(ushort character)
+  {
+    if(Match(character))
+      return true;
+
+    SetError(QObject::tr("Expected '%1' at character %2")
+                 .arg(QChar::fromLatin1(char(character)))
+                 .arg(m_Position + 1));
+    return false;
+  }
+
+  bool Match(ushort character)
+  {
+    SkipWhitespace();
+    if(m_Position >= m_Text.size() || m_Text[m_Position].unicode() != character)
+      return false;
+    m_Position++;
+    return true;
+  }
+
+  void SkipWhitespace()
+  {
+    while(m_Position < m_Text.size() && m_Text[m_Position].isSpace())
+      m_Position++;
+  }
+
+  bool CheckExpressionSize(const UVExpression &expression)
+  {
+    if(expression.tokens.size() <= 96)
+      return true;
+    SetError(QObject::tr("Formula is limited to 96 operations"));
+    return false;
+  }
+
+  void SetError(const QString &error)
+  {
+    if(m_Error.isEmpty())
+      m_Error = error;
+  }
+
+  const QString &m_Text;
+  int m_Position = 0;
+  QString m_Error;
+};
+
 struct UVPreviewData
 {
   QVector<QPointF> vertices;
   rdcarray<uint32_t> indices;
   Topology topology = Topology::Unknown;
+  QImage texture;
+  bool textureFlipY = false;
+  QString textureStatus;
   QString status;
 };
 
@@ -74,11 +483,36 @@ public:
   {
     setMinimumSize(220, 180);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+    QString error;
+    SetFormula(lit("uv.x, uv.y"), error);
   }
 
   void SetData(UVPreviewData &&previewData)
   {
     m_Data = std::move(previewData);
+    RebuildTransformedVertices();
+    update();
+  }
+
+  bool SetFormula(const QString &formula, QString &error)
+  {
+    UVExpression u, v;
+    UVFormulaParser parser(formula);
+    if(!parser.Parse(u, v, error))
+      return false;
+
+    m_UExpression = std::move(u);
+    m_VExpression = std::move(v);
+    m_FormulaError.clear();
+    RebuildTransformedVertices();
+    update();
+    return true;
+  }
+
+  void SetFormulaError(const QString &error)
+  {
+    m_FormulaError = error;
     update();
   }
 
@@ -90,16 +524,16 @@ protected:
 
     const QRectF drawRect = rect().adjusted(28, 12, -12, -28);
 
-    if(m_Data.vertices.empty() || m_Data.indices.empty())
+    if(m_TransformedVertices.empty() || m_Data.indices.empty())
     {
       painter.setPen(palette().color(QPalette::Disabled, QPalette::Text));
       painter.drawText(drawRect, Qt::AlignCenter,
-                       m_Data.status.isEmpty() ? tr("No UV data available") : m_Data.status);
+                       StatusText().isEmpty() ? tr("No UV data available") : StatusText());
       return;
     }
 
     double minX = 0.0, minY = 0.0, maxX = 1.0, maxY = 1.0;
-    for(const QPointF &uv : m_Data.vertices)
+    for(const QPointF &uv : m_TransformedVertices)
     {
       if(qIsFinite(uv.x()) && qIsFinite(uv.y()))
       {
@@ -114,14 +548,26 @@ protected:
     const double height = qMax(1.0e-6, maxY - minY);
     const double scale = qMin(drawRect.width() / width, drawRect.height() / height);
     const QPointF origin(drawRect.left() + (drawRect.width() - width * scale) * 0.5 - minX * scale,
-                         drawRect.bottom() - (drawRect.height() - height * scale) * 0.5 + minY * scale);
+                         drawRect.top() + (drawRect.height() - height * scale) * 0.5 - minY * scale);
 
     const auto map = [&origin, scale](const QPointF &uv) {
-      return QPointF(origin.x() + uv.x() * scale, origin.y() - uv.y() * scale);
+      return QPointF(origin.x() + uv.x() * scale, origin.y() + uv.y() * scale);
     };
 
     painter.save();
     painter.setClipRect(drawRect);
+
+    const QRectF textureRect = QRectF(map(QPointF(0.0, 0.0)), map(QPointF(1.0, 1.0))).normalized();
+    if(!m_Data.texture.isNull())
+    {
+      painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+      const QRectF source = m_Data.textureFlipY
+                                ? QRectF(0, m_Data.texture.height(), m_Data.texture.width(),
+                                         -m_Data.texture.height())
+                                : QRectF(0, 0, m_Data.texture.width(), m_Data.texture.height());
+      painter.drawImage(textureRect, m_Data.texture, source);
+      painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    }
 
     const int gridMinX = qMax(-64, int(floor(minX)));
     const int gridMaxX = qMin(64, int(ceil(maxX)));
@@ -134,18 +580,18 @@ protected:
       painter.drawLine(map(QPointF(minX, y)), map(QPointF(maxX, y)));
 
     painter.setPen(QPen(QColor(155, 155, 155), 1.0));
-    painter.drawRect(QRectF(map(QPointF(0.0, 1.0)), map(QPointF(1.0, 0.0))).normalized());
+    painter.drawRect(textureRect);
 
     const uint32_t invalidIndex = ~0U;
     const auto isValid = [this, invalidIndex](uint32_t index) {
-      if(index == invalidIndex || index >= (uint32_t)m_Data.vertices.size())
+      if(index == invalidIndex || index >= (uint32_t)m_TransformedVertices.size())
         return false;
-      const QPointF &uv = m_Data.vertices[(int)index];
+      const QPointF &uv = m_TransformedVertices[(int)index];
       return qIsFinite(uv.x()) && qIsFinite(uv.y());
     };
     const auto drawEdge = [&painter, &map, &isValid, this](uint32_t a, uint32_t b) {
       if(isValid(a) && isValid(b))
-        painter.drawLine(map(m_Data.vertices[(int)a]), map(m_Data.vertices[(int)b]));
+        painter.drawLine(map(m_TransformedVertices[(int)a]), map(m_TransformedVertices[(int)b]));
     };
     const auto drawTriangle = [&drawEdge](uint32_t a, uint32_t b, uint32_t c) {
       drawEdge(a, b);
@@ -161,7 +607,7 @@ protected:
       case Topology::PointList:
         for(uint32_t index : indices)
           if(isValid(index))
-            painter.drawEllipse(map(m_Data.vertices[(int)index]), 2.0, 2.0);
+            painter.drawEllipse(map(m_TransformedVertices[(int)index]), 2.0, 2.0);
         break;
       case Topology::LineList:
         for(size_t i = 1; i < indices.size(); i += 2)
@@ -274,11 +720,46 @@ protected:
     painter.setPen(palette().color(QPalette::Text));
     painter.drawText(QRectF(4, this->height() - 22, this->width() - 8, 18),
                      Qt::AlignLeft | Qt::AlignVCenter,
-                     m_Data.status);
+                     StatusText());
   }
 
 private:
+  void RebuildTransformedVertices()
+  {
+    m_TransformedVertices.resize(m_Data.vertices.size());
+    const QPointF invalidPoint(qQNaN(), qQNaN());
+
+    for(int i = 0; i < m_Data.vertices.size(); i++)
+    {
+      const QPointF &source = m_Data.vertices[i];
+      if(!qIsFinite(source.x()) || !qIsFinite(source.y()))
+      {
+        m_TransformedVertices[i] = invalidPoint;
+        continue;
+      }
+
+      const double u = m_UExpression.Evaluate(source.x(), source.y());
+      const double v = m_VExpression.Evaluate(source.x(), source.y());
+      m_TransformedVertices[i] = (qIsFinite(u) && qIsFinite(v)) ? QPointF(u, v) : invalidPoint;
+    }
+  }
+
+  QString StatusText() const
+  {
+    if(!m_FormulaError.isEmpty())
+      return tr("Formula error: %1").arg(m_FormulaError);
+    if(m_Data.textureStatus.isEmpty())
+      return m_Data.status;
+    if(m_Data.status.isEmpty())
+      return m_Data.textureStatus;
+    return m_Data.status + lit("  |  ") + m_Data.textureStatus;
+  }
+
   UVPreviewData m_Data;
+  QVector<QPointF> m_TransformedVertices;
+  UVExpression m_UExpression;
+  UVExpression m_VExpression;
+  QString m_FormulaError;
 };
 
 static UVPreviewData FetchUVPreview(IReplayController *r, const VertexInputAttribute &attribute,
@@ -429,6 +910,94 @@ static UVPreviewData FetchUVPreview(IReplayController *r, const VertexInputAttri
                     ? QObject::tr("Showing the first %1 of %2 indices").arg(previewIndices).arg(numIndices)
                     : QObject::tr("%1 indices").arg(previewIndices);
   return data;
+}
+
+static void FetchUVTexturePreview(IReplayController *r, const TextureDescription &texture,
+                                  const TextureDisplay &display, bool flipY, UVPreviewData &preview)
+{
+  static const uint64_t MaxTextureReadBytes = 64ULL * 1024ULL * 1024ULL;
+  static const uint32_t MaxTexturePreviewDimension = 1024;
+
+  const Subresource subresource = display.subresource;
+  const uint32_t width = qMax(1U, texture.width >> subresource.mip);
+  const uint32_t height = qMax(1U, texture.height >> subresource.mip);
+  const uint32_t elementSize = texture.format.ElementSize();
+
+  if(texture.dimension != 2 || texture.format.BlockFormat() || elementSize == 0)
+  {
+    preview.textureStatus = QObject::tr("Texture background is unavailable for this format");
+    return;
+  }
+
+  const uint64_t sourceSize = uint64_t(width) * height * elementSize;
+  if(sourceSize > MaxTextureReadBytes)
+  {
+    preview.textureStatus = QObject::tr("Texture background is larger than the 64 MiB preview limit");
+    return;
+  }
+
+  bytebuf source = r->GetTextureData(texture.resourceId, subresource);
+  if(source.size() < sourceSize)
+  {
+    preview.textureStatus = QObject::tr("Could not read the selected texture subresource");
+    return;
+  }
+
+  const uint32_t imageWidth = qMin(width, MaxTexturePreviewDimension);
+  const uint32_t imageHeight = qMin(height, MaxTexturePreviewDimension);
+  QImage image(int(imageWidth), int(imageHeight), QImage::Format_ARGB32);
+
+  ShaderConstant componentType;
+  componentType.type.rows = 1;
+  componentType.type.columns = texture.format.compCount;
+
+  const float rangeSize = display.rangeMax - display.rangeMin;
+  const bool linearToGamma = display.linearDisplayAsGamma && !texture.format.SRGBCorrected();
+
+  for(uint32_t y = 0; y < imageHeight; y++)
+  {
+    QRgb *pixels = (QRgb *)image.scanLine(int(y));
+    const uint32_t sourceY = uint32_t((uint64_t(y) * height) / imageHeight);
+    for(uint32_t x = 0; x < imageWidth; x++)
+    {
+      const uint32_t sourceX = uint32_t((uint64_t(x) * width) / imageWidth);
+      const byte *pixel = source.data() + (uint64_t(sourceY) * width + sourceX) * elementSize;
+      const byte *end = source.data() + source.size();
+      const QVariantList values = GetVariants(texture.format, componentType, pixel, end);
+
+      float components[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+      for(int component = 0; component < values.count() && component < 4; component++)
+      {
+        const double value = values[component].toDouble();
+        if(qIsFinite(value))
+        {
+          const double remapped = rangeSize != 0.0f
+                                      ? (value - display.rangeMin) / rangeSize
+                                      : value - display.rangeMin;
+          components[component] = float(qBound(0.0, remapped, 1.0));
+        }
+      }
+
+      float red = display.red ? components[0] : 0.0f;
+      float green = display.green ? components[1] : 0.0f;
+      float blue = display.blue ? components[2] : 0.0f;
+      const float alpha = display.alpha ? components[3] : 1.0f;
+
+      if(linearToGamma)
+      {
+        red = ConvertLinearToSRGB(red);
+        green = ConvertLinearToSRGB(green);
+        blue = ConvertLinearToSRGB(blue);
+      }
+
+      pixels[x] = qRgba(qRound(red * 255.0f), qRound(green * 255.0f), qRound(blue * 255.0f),
+                        qRound(alpha * 255.0f));
+    }
+  }
+
+  preview.texture = image;
+  preview.textureFlipY = flipY;
+  preview.textureStatus = QObject::tr("Texture background: %1 × %2").arg(width).arg(height);
 }
 
 // if changing these functions, consider running the 'exhaustive test' at the bottom of this file
@@ -1034,6 +1603,14 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
   QLabel *uvLabel = new QLabel(tr("UV"), m_UVToolbar);
   m_UVChannel = new QComboBox(m_UVToolbar);
   m_UVChannel->setToolTip(tr("Choose the mesh vertex-input channel to visualise"));
+  QLabel *formulaLabel = new QLabel(tr("Formula"), m_UVToolbar);
+  m_UVFormula = new QLineEdit(m_UVToolbar);
+  m_UVFormula->setMinimumWidth(180);
+  m_UVFormula->setText(lit("uv.x, uv.y"));
+  m_UVFormula->setToolTip(
+      tr("Enter a transformed U and V expression, e.g. uv.x+0.5, uv.y\n"
+         "Variables: uv.x, uv.y. Functions: sin, cos, tan, abs, sqrt, floor, ceil, fract, min, "
+         "max, pow, clamp."));
   m_UVPreviewToggle = new QToolButton(m_UVToolbar);
   m_UVPreviewToggle->setText(tr("Preview"));
   m_UVPreviewToggle->setCheckable(true);
@@ -1042,6 +1619,8 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
 
   uvLayout->addWidget(uvLabel);
   uvLayout->addWidget(m_UVChannel);
+  uvLayout->addWidget(formulaLabel);
+  uvLayout->addWidget(m_UVFormula);
   uvLayout->addWidget(m_UVPreviewToggle);
   flow2->addWidget(m_UVToolbar);
 
@@ -1052,6 +1631,7 @@ TextureViewer::TextureViewer(ICaptureContext &ctx, QWidget *parent)
                    &TextureViewer::uvPreview_toggled);
   QObject::connect(m_UVChannel, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
                    &TextureViewer::uvChannel_changed);
+  QObject::connect(m_UVFormula, &QLineEdit::textChanged, this, &TextureViewer::uvFormula_changed);
   UI_UpdateUVChannels();
 
   vertical->addWidget(flow1widget);
@@ -2314,6 +2894,9 @@ void TextureViewer::UI_UpdateChannels()
   INVOKE_MEMFN(RT_UpdateAndDisplay);
   INVOKE_MEMFN(RT_UpdateVisualRange);
   UI_UpdateStatusText();
+
+  if(m_UVPreviewToggle != NULL && m_UVPreviewToggle->isChecked())
+    UI_UpdateUVPreview();
 }
 
 void TextureViewer::UI_UpdateUVChannels()
@@ -2372,6 +2955,7 @@ void TextureViewer::UI_UpdateUVChannels()
 
   m_UVChannel->setCurrentIndex(selectedIndex);
   m_UVChannel->setEnabled(hasChannels);
+  m_UVFormula->setEnabled(hasChannels);
   m_UVPreviewToggle->setEnabled(hasChannels);
   m_UVChannel->blockSignals(false);
 
@@ -2417,6 +3001,25 @@ void TextureViewer::uvChannel_changed(int)
     UI_UpdateUVPreview();
 }
 
+void TextureViewer::uvFormula_changed(const QString &formula)
+{
+  QString error;
+  if(m_UVPreview->SetFormula(formula, error))
+  {
+    m_UVFormula->setStyleSheet(QString());
+    m_UVFormula->setToolTip(
+        tr("Enter a transformed U and V expression, e.g. uv.x+0.5, uv.y\n"
+           "Variables: uv.x, uv.y. Functions: sin, cos, tan, abs, sqrt, floor, ceil, fract, min, "
+           "max, pow, clamp."));
+  }
+  else
+  {
+    m_UVFormula->setStyleSheet(lit("QLineEdit { border: 1px solid #d9534f; }"));
+    m_UVFormula->setToolTip(error);
+    m_UVPreview->SetFormulaError(error);
+  }
+}
+
 void TextureViewer::UI_UpdateUVPreview()
 {
   const uint64_t request = ++m_UVPreviewRequest;
@@ -2456,17 +3059,28 @@ void TextureViewer::UI_UpdateUVPreview()
   const bool restartEnabled = pipe.IsRestartEnabled();
   const uint32_t restartIndex = pipe.GetRestartIndex();
 
+  TextureDescription texture = {};
+  const TextureDescription *texturePtr = GetCurrentTexture();
+  const bool previewTexture = texturePtr != NULL && texturePtr->resourceId == m_TexDisplay.resourceId;
+  if(previewTexture)
+    texture = *texturePtr;
+  const TextureDisplay textureDisplay = m_TexDisplay;
+  const bool textureFlipY = ShouldFlipForGL() != m_TexDisplay.flipY;
+
   UVPreviewData pending;
-  pending.status = tr("Loading UV data...");
+  pending.status = tr("Loading UV and texture data...");
   m_UVPreview->SetData(std::move(pending));
 
   QPointer<TextureViewer> self(this);
   m_Ctx.Replay().AsyncInvoke(
       [self, request, attribute, vertexBuffer, indexBuffer, topology, numIndices, indexOffset,
-       vertexOffset, baseVertex, indexed, restartEnabled, restartIndex](IReplayController *r) {
+       vertexOffset, baseVertex, indexed, restartEnabled, restartIndex, texture, textureDisplay,
+       textureFlipY, previewTexture](IReplayController *r) {
         UVPreviewData data =
             FetchUVPreview(r, attribute, vertexBuffer, indexBuffer, topology, numIndices, indexOffset,
                            vertexOffset, baseVertex, indexed, restartEnabled, restartIndex);
+        if(previewTexture)
+          FetchUVTexturePreview(r, texture, textureDisplay, textureFlipY, data);
 
         if(self)
         {
@@ -4696,6 +5310,9 @@ void TextureViewer::on_mipLevel_currentIndexChanged(int index)
   }
 
   INVOKE_MEMFN(RT_UpdateVisualRange);
+
+  if(m_UVPreviewToggle != NULL && m_UVPreviewToggle->isChecked())
+    UI_UpdateUVPreview();
 }
 
 void TextureViewer::on_sliceFace_currentIndexChanged(int index)
@@ -4715,6 +5332,9 @@ void TextureViewer::on_sliceFace_currentIndexChanged(int index)
   {
     INVOKE_MEMFN(RT_PickPixelsAndUpdate);
   }
+
+  if(m_UVPreviewToggle != NULL && m_UVPreviewToggle->isChecked())
+    UI_UpdateUVPreview();
 }
 
 void TextureViewer::on_locationGoto_clicked()

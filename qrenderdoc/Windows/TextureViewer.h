@@ -44,6 +44,7 @@ class QFileSystemWatcher;
 class TextureViewer;
 class UVPreviewWidget;
 class QComboBox;
+class QLineEdit;
 class QToolButton;
 
 struct Following
@@ -247,6 +248,7 @@ private slots:
   void channelsWidget_selected(int index) { UI_UpdateChannels(); }
   void uvPreview_toggled(bool checked);
   void uvChannel_changed(int index);
+  void uvFormula_changed(const QString &formula);
 protected:
   void enterEvent(QEvent *event) override;
   void showEvent(QShowEvent *event) override;
@@ -365,6 +367,7 @@ private:
 
   QFrame *m_UVToolbar = NULL;
   QComboBox *m_UVChannel = NULL;
+  QLineEdit *m_UVFormula = NULL;
   QToolButton *m_UVPreviewToggle = NULL;
   UVPreviewWidget *m_UVPreview = NULL;
   bool m_UVPreviewDocked = false;
